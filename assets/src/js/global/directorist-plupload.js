@@ -1,4 +1,4 @@
-import { get_dom_data } from './../lib/helper';
+import { get_dom_data, renderDirectoristIcon } from './../lib/helper';
 
 jQuery.fn.exists = function () {
 	return jQuery(this).length > 0;
@@ -484,61 +484,34 @@ function plu_show_thumbs(imgId) {
 					icon_class = 'fas fa-file-alt';
 				}
 
-				// Get icon URL using Directorist icon system
-				var iconURL = '';
-				var iconPath = '';
-
-				if (
-					typeof directorist !== 'undefined' &&
-					directorist.assets_url
-				) {
-					// Map icon class to file path
-					if (icon_class.indexOf('fa-file-pdf') !== -1) {
-						iconPath = 'font-awesome/svgs/solid/file-pdf.svg';
-					} else if (icon_class.indexOf('fa-file-archive') !== -1) {
-						iconPath = 'font-awesome/svgs/solid/file-archive.svg';
-					} else if (icon_class.indexOf('fa-file-word') !== -1) {
-						iconPath = 'font-awesome/svgs/solid/file-word.svg';
-					} else if (icon_class.indexOf('fa-file-alt') !== -1) {
-						iconPath = 'font-awesome/svgs/regular/file-alt.svg';
-					} else if (icon_class.indexOf('fa-file-excel') !== -1) {
-						iconPath = 'font-awesome/svgs/solid/file-excel.svg';
-					} else if (icon_class.indexOf('fa-file-video') !== -1) {
-						iconPath = 'font-awesome/svgs/solid/file-video.svg';
-					} else if (icon_class.indexOf('fa-file-audio') !== -1) {
-						iconPath = 'font-awesome/svgs/solid/file-audio.svg';
-					} else if (
-						icon_class.indexOf('fa-file-powerpoint') !== -1
-					) {
-						iconPath =
-							'font-awesome/svgs/solid/file-powerpoint.svg';
-					} else {
-						iconPath = 'font-awesome/svgs/regular/file.svg';
-					}
-					iconURL = directorist.assets_url + 'icons/' + iconPath;
-				}
-
 				// Generate Directorist icon HTML for file
-				var fileIconHTML = '';
-				if (
-					iconURL &&
-					typeof directorist !== 'undefined' &&
-					directorist.icon_markup
+				var iconPath = 'icons/font-awesome/svgs/regular/file.svg';
+				if (icon_class.indexOf('fa-file-pdf') !== -1) {
+					iconPath = 'icons/font-awesome/svgs/solid/file-pdf.svg';
+				} else if (icon_class.indexOf('fa-file-archive') !== -1) {
+					iconPath = 'icons/font-awesome/svgs/solid/file-archive.svg';
+				} else if (icon_class.indexOf('fa-file-word') !== -1) {
+					iconPath = 'icons/font-awesome/svgs/solid/file-word.svg';
+				} else if (icon_class.indexOf('fa-file-alt') !== -1) {
+					iconPath = 'icons/font-awesome/svgs/regular/file-alt.svg';
+				} else if (icon_class.indexOf('fa-file-excel') !== -1) {
+					iconPath = 'icons/font-awesome/svgs/solid/file-excel.svg';
+				} else if (icon_class.indexOf('fa-file-video') !== -1) {
+					iconPath = 'icons/font-awesome/svgs/solid/file-video.svg';
+				} else if (icon_class.indexOf('fa-file-audio') !== -1) {
+					iconPath = 'icons/font-awesome/svgs/solid/file-audio.svg';
+				} else if (
+					icon_class.indexOf('fa-file-powerpoint') !== -1
 				) {
-					fileIconHTML = directorist.icon_markup
-						.replace('##URL##', iconURL)
-						.replace('##CLASS##', 'atbdp-file-icon');
-				} else if (iconURL) {
-					// Fallback to simple icon if directorist.icon_markup is not available
-					fileIconHTML =
-						'<i class="directorist-icon-mask atbdp-file-icon" aria-hidden="true" style="--directorist-icon: url(' +
-						iconURL +
-						')"></i>';
-				} else {
-					// Final fallback - use a generic file icon
-					fileIconHTML =
-						'<i class="directorist-icon-mask atbdp-file-icon" aria-hidden="true"></i>';
+					iconPath =
+						'icons/font-awesome/svgs/solid/file-powerpoint.svg';
 				}
+
+				var fileIconHTML = renderDirectoristIcon(
+					icon_class,
+					'atbdp-file-icon',
+					iconPath
+				);
 
 				file_display_class = 'file-thumb';
 				file_display =
@@ -560,12 +533,11 @@ function plu_show_thumbs(imgId) {
 					'</div>';
 			}
 
-			let removeIconURL =
-				directorist.assets_url +
-				'icons/font-awesome/svgs/solid/trash-alt.svg';
-			let iconHTML = directorist.icon_markup
-				.replace('##URL##', removeIconURL)
-				.replace('##CLASS##', '');
+			let iconHTML = renderDirectoristIcon(
+				'fas fa-trash-alt',
+				'',
+				'icons/font-awesome/svgs/solid/trash-alt.svg'
+			);
 
 			var thumb = $(
 				'<div class="thumb ' +

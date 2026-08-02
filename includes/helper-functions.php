@@ -750,25 +750,50 @@ function directorist_icon( $icon, $echo = true, $class = '' ) {
         return;
     }
 
-    $icon_src = \Directorist\Helper::get_icon_src( $icon );
-
-    if ( ! $icon_src ) {
-        return;
-    }
-
-    $class = $class ? 'directorist-icon-mask ' . $class : 'directorist-icon-mask';
-
-    $html = sprintf(
-        '<i class="%1$s" aria-hidden="true" style="--directorist-icon: url(%2$s)"></i>',
-        esc_attr( $class ),
-        esc_url( $icon_src )
-    );
+    $html = \Directorist\Icon_Manager::render( $icon, $class );
 
     if ( $echo ) {
         echo wp_kses_post( $html );
     } else {
         return $html;
     }
+}
+
+/**
+ * Request a Directorist renderer-level asset.
+ *
+ * @param string|array $assets  Asset key or list of asset keys.
+ * @param string       $reason  Optional integration/debug reason.
+ * @param array        $context Optional render context.
+ *
+ * @return void
+ */
+function directorist_require_asset( $assets, $reason = 'integration-render', $context = [] ) {
+    \Directorist\Asset_Loader\Asset_Manager::require_asset( $assets, $reason, $context );
+}
+
+/**
+ * Enqueue one or more registered styles from a renderer-level integration.
+ * Styles first requested after wp_head are flushed before footer scripts.
+ *
+ * @param string|array $handles Registered style handle or handles.
+ * @param string       $reason  Optional integration/debug reason.
+ *
+ * @return void
+ */
+function directorist_require_style( $handles, $reason = 'integration-render' ) {
+    foreach ( (array) $handles as $handle ) {
+        \Directorist\Asset_Loader\Asset_Manager::require_style( $handle, 'integration', $reason );
+    }
+}
+
+/**
+ * Get Directorist renderer-level assets required in the current request.
+ *
+ * @return array
+ */
+function directorist_get_required_assets() {
+    return \Directorist\Asset_Loader\Asset_Manager::get_required_assets();
 }
 
 if ( ! function_exists( 'atbdp_sanitize_array' ) ) {
@@ -2253,7 +2278,17 @@ function search_category_location_filter( $settings, $taxonomy_id, $prefix = '' 
         foreach ( $terms as $term ) {
             $directory_type = get_term_meta( $term->term_id, '_directory_type', true );
             $icon           = get_cat_icon( $term->term_id );
-            $icon_src       = \Directorist\Helper::get_icon_src( $icon );
+            $icon_class     = \Directorist\Icon_Manager::get_icon_classes( $icon );
+            $icon_attr      = $icon_class ? ' data-icon-class="' . esc_attr( $icon_class ) . '"' : '';
+
+            if ( ! $icon_attr && $icon ) {
+                $icon_src = \Directorist\Helper::get_icon_src( $icon );
+
+                if ( $icon_src ) {
+                    $icon_attr = ' data-icon="' . esc_attr( $icon_src ) . '"';
+                }
+            }
+
             $directory_type = ! empty( $directory_type ) ? (array) $directory_type : [];
             if ( in_array( $settings['listing_type'], $directory_type ) ) {
                 $settings['term_id'] = $term->term_id;
@@ -2272,7 +2307,7 @@ function search_category_location_filter( $settings, $taxonomy_id, $prefix = '' 
                     $has_custom_field = in_array( (int) $term->term_id, $settings['categories_with_custom_field'], true );
                 }
 
-                $html .= '<option data-icon = "' . esc_attr( $icon_src ) . '" data-custom-field="' . esc_attr( $has_custom_field ) . '" value="' . $term->term_id . '" ' . $selected . '>';
+                $html .= '<option' . $icon_attr . ' data-custom-field="' . esc_attr( $has_custom_field ) . '" value="' . $term->term_id . '" ' . $selected . '>';
 
                 $html .= $prefix . $term->name;
                 if ( ! empty( $settings['show_count'] ) ) {
@@ -3819,7 +3854,8 @@ function directorist_get_allowed_attributes() {
         'd'       => [],
 
         'data-custom-field' => [],
-        'data-icon' => [],
+        'data-icon'       => [],
+        'data-icon-class' => [],
     ];
 
     return apply_filters( 'directorist_get_allowed_attributes', $allowed_attributes );

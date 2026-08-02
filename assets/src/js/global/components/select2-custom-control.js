@@ -1,3 +1,5 @@
+import { renderDirectoristIcon } from './../../lib/helper';
+
 const $ = jQuery;
 
 window.addEventListener('load', waitAndInit);
@@ -83,12 +85,11 @@ function selec2_add_custom_dropdown_toggle_button() {
 
 	if (!dropdown.length) {
 		// Add Dropdown Toggle Button
-		let iconURL =
-			directorist.assets_url +
-			'icons/font-awesome/svgs/solid/chevron-down.svg';
-		let iconHTML = directorist.icon_markup
-			.replace('##URL##', iconURL)
-			.replace('##CLASS##', '');
+		let iconHTML = renderDirectoristIcon(
+			'fas fa-chevron-down',
+			'',
+			'icons/font-awesome/svgs/solid/chevron-down.svg'
+		);
 		const dropdownHTML = `<span class="directorist-select2-addon directorist-select2-dropdown-toggle">${iconHTML}</span>`;
 		addon_container.append(dropdownHTML);
 	}
@@ -175,11 +176,11 @@ function selec2_add_custom_close_button(field) {
 	addon_container.find('.directorist-select2-dropdown-close').remove();
 
 	// Add
-	let iconURL =
-		directorist.assets_url + 'icons/font-awesome/svgs/solid/times.svg';
-	let iconHTML = directorist.icon_markup
-		.replace('##URL##', iconURL)
-		.replace('##CLASS##', '');
+	let iconHTML = renderDirectoristIcon(
+		'fas fa-times',
+		'',
+		'icons/font-awesome/svgs/solid/times.svg'
+	);
 	addon_container.prepend(
 		`<span class="directorist-select2-addon directorist-select2-dropdown-close">${iconHTML}</span>`
 	);

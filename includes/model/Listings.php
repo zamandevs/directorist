@@ -1548,6 +1548,10 @@ class Directorist_Listings {
     }
 
     public function render_map() {
+        if ( function_exists( 'directorist_require_asset' ) ) {
+            directorist_require_asset( 'map', 'archive-map-render', [ 'display' => $this->view_as ] );
+        }
+
         if ( 'google' == $this->select_listing_map ) {
             $this->load_google_map();
         } else {
@@ -1904,6 +1908,10 @@ class Directorist_Listings {
             }
             return $image;
         } else {
+            if ( function_exists( 'directorist_require_asset' ) ) {
+                directorist_require_asset( 'listing-slider', 'listing-card-gallery-render' );
+            }
+
             $output = "<div class='directorist-swiper directorist-swiper-listing' data-sw-items='1' data-sw-margin='2' data-sw-loop='true' data-sw-perslide='1' data-sw-speed='500' data-sw-autoplay='false' data-sw-responsive='{}'>
 					<div class='swiper-wrapper'>";
 
