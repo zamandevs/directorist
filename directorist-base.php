@@ -232,6 +232,12 @@ final class Directorist_Base {
 
             add_action( 'init', [ self::$instance, 'on_install_update_actions' ] );
             Activation::register_hooks();
+            Directorist\database\Listing_Index::register_hooks();
+            Directorist\database\Listing_Index_Maintenance::register_hooks();
+
+            if ( defined( 'WP_CLI' ) && WP_CLI ) {
+                Directorist\database\Listing_Index_CLI::register();
+            }
 
             Directorist\Asset_Loader\Asset_Loader::init();
 

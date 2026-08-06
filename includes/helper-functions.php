@@ -1565,12 +1565,16 @@ function directorist_have_listings_with_price() {
         'post_type'              => ATBDP_POST_TYPE,
         'post_status'            => 'publish',
         'meta_key'               => '_price',
+        'fields'                 => 'ids',
+        'orderby'                => 'none',
         'no_found_rows'          => true,
         'posts_per_page'         => 1,
         'update_post_meta_cache' => false,
         'update_post_term_cache' => false,
     ];
 
+    \Directorist\database\Listing_Index_Query::register_hooks();
+    $args                = \Directorist\database\Listing_Index_Query::prepare_args( $args );
     $listings_with_price = new WP_Query( $args );
     return $listings_with_price->have_posts();
 }

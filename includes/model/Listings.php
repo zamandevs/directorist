@@ -1012,18 +1012,20 @@ class Directorist_Listings {
 
                         foreach ( $values as $value ) {
                             $sub_meta_queries[] = [
-                                'key'     => '_' . $key,
-                                'value'   => sanitize_text_field( $value ),
-                                'compare' => 'LIKE'
+                                'key'                     => '_' . $key,
+                                'value'                   => sanitize_text_field( $value ),
+                                'compare'                 => 'LIKE',
+                                'directorist_index_match' => 'membership',
                             ];
                         }
 
                         $meta_query = $sub_meta_queries;
                     } else {
                         $meta_query = [
-                            'key'     => '_' . $key,
-                            'value'   => sanitize_text_field( $values[0] ),
-                            'compare' => 'LIKE'
+                            'key'                     => '_' . $key,
+                            'value'                   => sanitize_text_field( $values[0] ),
+                            'compare'                 => 'LIKE',
+                            'directorist_index_match' => 'membership',
                         ];
                     }
                 } else {
@@ -1049,6 +1051,10 @@ class Directorist_Listings {
                             'value'   => sanitize_text_field( $values ),
                             'compare' => $operator
                         ];
+
+                        if ( 'LIKE' === $operator ) {
+                            $meta_query['directorist_index_match'] = 'fulltext';
+                        }
                     }
                 }
 

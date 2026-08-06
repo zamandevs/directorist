@@ -42,4 +42,29 @@ tests_add_filter(
     }
 );
 
+// Prevent asynchronous maintenance requests from leaving the isolated test process.
+tests_add_filter(
+    'pre_http_request',
+    static function ( $preempt, $args, $url ) {
+        unset( $args );
+
+        if ( false === strpos( $url, 'directorist_listing_index' ) ) {
+            return $preempt;
+        }
+
+        return [
+            'headers'  => [],
+            'body'     => '',
+            'response' => [
+                'code'    => 202,
+                'message' => 'Accepted',
+            ],
+            'cookies'  => [],
+            'filename' => null,
+        ];
+    },
+    10,
+    3
+);
+
 require_once $wp_phpunit_dir . '/includes/bootstrap.php';
