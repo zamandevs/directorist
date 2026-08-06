@@ -39,4 +39,4 @@ class Radio_Field extends Base_Field {
     }
 }
 
-Fields::register( new Radio_Field() );
+Fields::register_class( 'radio', Radio_Field::class );

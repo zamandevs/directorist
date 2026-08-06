@@ -13,13 +13,24 @@ use Directorist\Enums\Payment\Status as PaymentStatus;
 use Directorist\PaymentProcessors\BankTransfer as BankTransferPaymentProcessor;
 
 class PaymentService {
+    private static $hooks_registered = false;
+
     public function __construct() {
-        add_filter( 'directorist_payment_receipt_is_allowed_retry_payment', [$this, 'ignore_retry_payment'], 10, 2 );
-        add_action( 'directorist_repository_after_order_update', [$this, 'update_payment_status'], 10, 1 );
-        add_action( 'directorist_payment_receipt_before_order_details', [ $this, 'maybe_show_bank_transfer_instruction' ], 10, 1 );
+        self::register_hooks();
     }
 
-    public function maybe_show_bank_transfer_instruction( OrderDTO $order ) {
+    public static function register_hooks() {
+        if ( self::$hooks_registered ) {
+            return;
+        }
+
+        self::$hooks_registered = true;
+        add_filter( 'directorist_payment_receipt_is_allowed_retry_payment', [ self::class, 'ignore_retry_payment' ], 10, 2 );
+        add_action( 'directorist_repository_after_order_update', [ self::class, 'update_payment_status' ], 10, 1 );
+        add_action( 'directorist_payment_receipt_before_order_details', [ self::class, 'maybe_show_bank_transfer_instruction' ], 10, 1 );
+    }
+
+    public static function maybe_show_bank_transfer_instruction( OrderDTO $order ) {
         $payable_order_statuses = [ 
             OrderStatus::PENDING,
             OrderStatus::FAILED,
@@ -58,7 +69,7 @@ class PaymentService {
         );
     }
 
-    public function ignore_retry_payment( bool $is_retry, ?PaymentDTO $payment ) {
+    public static function ignore_retry_payment( bool $is_retry, ?PaymentDTO $payment ) {
         if ( $payment && $payment->get_method() === BankTransfer::get_key() ) {
             return false;
         }
@@ -66,7 +77,7 @@ class PaymentService {
         return $is_retry;
     }
 
-    public function update_payment_status( OrderDTO $order_dto ) {
+    public static function update_payment_status( OrderDTO $order_dto ) {
         if ( $order_dto->get_status() !== OrderStatus::PAID ) {
             return;
         }

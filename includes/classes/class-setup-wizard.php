@@ -1132,4 +1132,3 @@ class Directorist_Setup_Wizard {
         <?php
     }
 }
-new Directorist_Setup_Wizard();

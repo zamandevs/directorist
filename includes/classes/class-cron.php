@@ -17,17 +17,43 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 if ( ! class_exists( 'ATBDP_Cron' ) ) :
     class ATBDP_Cron {
+        private static $hooks_registered = false;
+
+        private static $instance;
+
         public function __construct() {
+            self::register_hooks();
+        }
+
+        public static function register_hooks() {
+            if ( self::$hooks_registered ) {
+                return;
+            }
+
+            self::$hooks_registered = true;
+
             // init wp schedule
-            add_action( 'wp', [ $this, 'atbdp_custom_schedule_cron' ] );
-            add_action( 'directorist_hourly_scheduled_events', [ $this, 'atbdp_schedule_tasks' ] );
+            add_action( 'wp', [ __CLASS__, 'atbdp_custom_schedule_cron' ] );
+            add_action( 'directorist_hourly_scheduled_events', [ __CLASS__, 'run_scheduled_tasks' ] );
             // schedule task run after every 5 minutes || use bellow line for debug
             // add_action('init', array($this, 'atbdp_schedule_tasks'));
-            add_filter( 'cron_schedules', [ $this, 'atbdp_cron_init' ] );
+            add_filter( 'cron_schedules', [ __CLASS__, 'atbdp_cron_init' ] );
 
             //add_action( 'edit_post', [ $this, 'update_atbdp_schedule_tasks' ], 10, 2 );
 
-            add_action( 'directorist_cleanup_temporary_uploads', [ $this, 'cleanup_temporary_uploads' ] );
+            add_action( 'directorist_cleanup_temporary_uploads', [ __CLASS__, 'cleanup_temporary_uploads' ] );
+        }
+
+        public static function instance() {
+            if ( ! self::$instance ) {
+                self::$instance = new self();
+            }
+
+            return self::$instance;
+        }
+
+        public static function run_scheduled_tasks() {
+            self::instance()->atbdp_schedule_tasks();
         }
 
         // update_atbdp_schedule_tasks
@@ -44,7 +70,7 @@ if ( ! class_exists( 'ATBDP_Cron' ) ) :
          * @since 5.0.1
          */
 
-        public function atbdp_cron_init( $schedules ) {
+        public static function atbdp_cron_init( $schedules ) {
             $schedules['atbdp_listing_manage'] = apply_filters(
                 'atbdp_cron_setup_args',
                 [
@@ -81,7 +107,7 @@ if ( ! class_exists( 'ATBDP_Cron' ) ) :
         /**
          * @since 5.0.1
          */
-        public function atbdp_custom_schedule_cron() {
+        public static function atbdp_custom_schedule_cron() {
             if ( ! wp_next_scheduled( 'directorist_hourly_scheduled_events' ) ) {
                 wp_schedule_event( time(), 'atbdp_listing_manage', 'directorist_hourly_scheduled_events' );
             }
@@ -479,7 +505,7 @@ if ( ! class_exists( 'ATBDP_Cron' ) ) :
             }
         }
 
-        public function cleanup_temporary_uploads() {
+        public static function cleanup_temporary_uploads() {
             directorist_delete_temporary_upload_dirs();
 
             if ( ! wp_next_scheduled( 'directorist_cleanup_temporary_uploads' ) ) {

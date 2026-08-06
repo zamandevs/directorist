@@ -16,22 +16,33 @@ class PaymentCheckoutService {
 
     const CHECKOUT_TYPE = 'payment';
 
+    private static $hooks_registered = false;
+
     public function __construct() {
-        add_filter( 'directorist_checkout_types', [ $this, 'add_checkout_type' ] );
-        add_action( 'directorist_checkout_validation', [ $this, 'validate_checkout' ], 10, 2 );
-        add_action( 'directorist_checkout_table', [ $this, 'handle_checkout_table' ], 10, 4 );
-        add_filter( 'directorist_checkout_subtotal', [$this, 'handle_checkout_subtotal'], 10, 3 );
-        add_filter( 'directorist_checkout_total', [ $this, 'handle_checkout_total' ], 10, 3 );
-        add_action( 'directorist_checkout_create_order', [ $this, 'handle_checkout_create_order' ], 10, 3 );
-        add_action( 'atbdp_before_checkout_form_end', [ $this, 'before_checkout_form_end' ], 10 );
+        self::register_hooks();
     }
 
-    public function add_checkout_type( array $checkout_types ) {
+    public static function register_hooks() {
+        if ( self::$hooks_registered ) {
+            return;
+        }
+
+        self::$hooks_registered = true;
+        add_filter( 'directorist_checkout_types', [ self::class, 'add_checkout_type' ] );
+        add_action( 'directorist_checkout_validation', [ self::class, 'validate_checkout' ], 10, 2 );
+        add_action( 'directorist_checkout_table', [ self::class, 'handle_checkout_table' ], 10, 4 );
+        add_filter( 'directorist_checkout_subtotal', [ self::class, 'handle_checkout_subtotal' ], 10, 3 );
+        add_filter( 'directorist_checkout_total', [ self::class, 'handle_checkout_total' ], 10, 3 );
+        add_action( 'directorist_checkout_create_order', [ self::class, 'handle_checkout_create_order' ], 10, 3 );
+        add_action( 'atbdp_before_checkout_form_end', [ self::class, 'before_checkout_form_end' ], 10 );
+    }
+
+    public static function add_checkout_type( array $checkout_types ) {
         $checkout_types[] = self::CHECKOUT_TYPE;
         return $checkout_types;
     }
 
-    public function validate_checkout( string $checkout_type, WP_REST_Request $request ) {
+    public static function validate_checkout( string $checkout_type, WP_REST_Request $request ) {
         if ( $checkout_type !== self::CHECKOUT_TYPE ) {
             return;
         }
@@ -63,7 +74,7 @@ class PaymentCheckoutService {
         }
     }
 
-    public function handle_checkout_table( string $checkout_type, float $total, float $subtotal, WP_REST_Request $request ) {
+    public static function handle_checkout_table( string $checkout_type, float $total, float $subtotal, WP_REST_Request $request ) {
         if ( $checkout_type !== self::CHECKOUT_TYPE ) {
             return;
         }
@@ -88,7 +99,7 @@ class PaymentCheckoutService {
         ] );
     }
 
-    public function handle_checkout_subtotal( float $subtotal, string $checkout_type, WP_REST_Request $request ) {
+    public static function handle_checkout_subtotal( float $subtotal, string $checkout_type, WP_REST_Request $request ) {
         if ( $checkout_type !== self::CHECKOUT_TYPE ) {
             return $subtotal;
         }
@@ -102,7 +113,7 @@ class PaymentCheckoutService {
         return $order->sub_total;
     }
 
-    public function handle_checkout_total( float $total, string $checkout_type, WP_REST_Request $request ) {
+    public static function handle_checkout_total( float $total, string $checkout_type, WP_REST_Request $request ) {
         if ( $checkout_type !== self::CHECKOUT_TYPE ) {
             return $total;
         }
@@ -116,7 +127,7 @@ class PaymentCheckoutService {
         return directorist_order_total_amount( $order );
     }
 
-    public function handle_checkout_create_order( DTO $dto, string $checkout_type, WP_REST_Request $request ) {
+    public static function handle_checkout_create_order( DTO $dto, string $checkout_type, WP_REST_Request $request ) {
         if ( $checkout_type !== self::CHECKOUT_TYPE ) {
             return;
         }
@@ -131,7 +142,7 @@ class PaymentCheckoutService {
         $dto->set_id( (int) $order->id );
     }
 
-    public function before_checkout_form_end() {
+    public static function before_checkout_form_end() {
         if ( isset( $_GET['order_id'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
             echo '<input type="hidden" name="order_id" value="' . esc_attr( absint( $_GET['order_id'] ) ) . '">'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
         }

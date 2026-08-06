@@ -41,7 +41,11 @@ if ( ! class_exists( 'ATBDP_Add_Listing' ) ) :
         /**
          * ATBDP_Add_Listing constructor.
          */
-        public function __construct() {
+        public function __construct( $register_hooks = true ) {
+            if ( ! $register_hooks ) {
+                return;
+            }
+
             // show the attachment of the current users only.
             add_filter( 'ajax_query_attachments_args', [ $this, 'show_current_user_attachments' ] );
             add_action( 'template_redirect', [ $this, 'handle_listing_renewal' ] );

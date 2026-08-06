@@ -22,7 +22,6 @@ if ( ! class_exists( 'ATBDP_User' ) ) :
         public function __construct() {
             add_action( 'wp_loaded', [ $this, 'handle_user_registration' ] );
             //add_action('init', array($this, 'activate_user'));
-            add_filter( 'pre_get_posts', [ $this,'restrict_listing_to_the_author' ] );
             // allow contributor upload images for now. @todo; later it will be better to add custom rules and capability
             // add_action( 'plugins_loaded', array( $this, 'user_functions_ready_hook' ) );// before we add custom image uploading, lets use WordPress default image uploading by letting subscriber and contributor upload imaging capability
 
@@ -31,6 +30,7 @@ if ( ! class_exists( 'ATBDP_User' ) ) :
             add_filter( 'authenticate', [$this, 'filter_authenticate'], 999999, 2 );
 
             if ( is_admin() ) {
+                add_filter( 'pre_get_posts', [ $this,'restrict_listing_to_the_author' ] );
                 add_filter( 'manage_users_columns', [$this,'manage_users_columns'], 10, 1 );
                 add_filter( 'manage_users_custom_column', [$this,'manage_users_custom_column'], 10, 3 );
 
@@ -48,8 +48,10 @@ if ( ! class_exists( 'ATBDP_User' ) ) :
                 add_action( 'user_register', [$this, 'action_user_register'] );
             }
 
-            add_action( 'wp_ajax_directorist_register_form', [ $this, 'directorist_register_form' ] );
-            add_action( 'wp_ajax_nopriv_directorist_register_form', [ $this, 'directorist_register_form' ] );
+            if ( defined( 'DOING_AJAX' ) && DOING_AJAX ) {
+                add_action( 'wp_ajax_directorist_register_form', [ $this, 'directorist_register_form' ] );
+                add_action( 'wp_ajax_nopriv_directorist_register_form', [ $this, 'directorist_register_form' ] );
+            }
         }
 
         public function directorist_register_form() {

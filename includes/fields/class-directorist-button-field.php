@@ -54,4 +54,4 @@ class Button_Field extends Base_Field {
     }
 }
 
-Fields::register( new Button_Field() );
+Fields::register_class( 'button', Button_Field::class );

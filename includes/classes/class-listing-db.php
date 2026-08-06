@@ -18,7 +18,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 if ( ! class_exists( 'ATBDP_Listing_DB' ) ) :
     class ATBDP_Listing_DB {
-        public function __construct () {
+        public function __construct( $register_hooks = true ) {
+            if ( ! $register_hooks ) {
+                return;
+            }
+
             add_action( 'before_delete_post', [ $this, 'atbdp_delete_attachment' ] );
         }
 

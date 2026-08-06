@@ -35,4 +35,4 @@ class Video_Field extends Base_Field {
     }
 }
 
-Fields::register( new Video_Field() );
+Fields::register_class( 'video', Video_Field::class );

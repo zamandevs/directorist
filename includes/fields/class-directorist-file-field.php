@@ -25,4 +25,4 @@ class File_Field extends Base_Field {
     }
 }
 
-Fields::register( new File_Field() );
+Fields::register_class( 'file', File_Field::class );
