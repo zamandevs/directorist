@@ -13,6 +13,8 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 class Directorist_Listings {
     protected $thumbnails_cached = false;
 
+    protected $post_caches_primed = false;
+
     public $query_args = [];
 
     public $query_results = [];
@@ -1330,7 +1332,7 @@ class Directorist_Listings {
             return;
         }
 
-        _prime_post_caches( $this->post_ids() );
+        $this->prime_post_caches();
 
         global $post;
         $post = get_post( $id );
@@ -1360,9 +1362,7 @@ class Directorist_Listings {
 
         if ( ! empty( $listings->ids ) ) :
             // Prime caches to reduce future queries.
-            if ( ! empty( $listings->ids ) && is_callable( '_prime_post_caches' ) ) {
-                _prime_post_caches( $listings->ids );
-            }
+            $this->prime_post_caches();
 
             $original_post = $GLOBALS['post'];
             $counter = 0;
@@ -1683,9 +1683,7 @@ class Directorist_Listings {
 
         if ( ! empty( $listings->ids ) ) :
             // Prime caches to reduce future queries.
-            if ( ! empty( $listings->ids ) && is_callable( '_prime_post_caches' ) ) {
-                _prime_post_caches( $listings->ids );
-            }
+            $this->prime_post_caches();
 
             $original_post = ! empty( $GLOBALS['post'] ) ? $GLOBALS['post'] : '';
 
@@ -1774,9 +1772,7 @@ class Directorist_Listings {
 
             if ( ! empty( $listings->ids ) ) :
                 // Prime caches to reduce future queries.
-                if ( ! empty( $listings->ids ) && is_callable( '_prime_post_caches' ) ) {
-                    _prime_post_caches( $listings->ids );
-                }
+                $this->prime_post_caches();
 
                 $original_post = ! empty( $GLOBALS['post'] ) ? $GLOBALS['post'] : '';
 
@@ -1862,6 +1858,15 @@ class Directorist_Listings {
         }
 
         $this->thumbnails_cached = true;
+    }
+
+    public function prime_post_caches() {
+        if ( $this->post_caches_primed || empty( $this->query_results->ids ) || ! is_callable( '_prime_post_caches' ) ) {
+            return;
+        }
+
+        _prime_post_caches( $this->query_results->ids );
+        $this->post_caches_primed = true;
     }
 
     function loop_get_the_thumbnail( $class = '' ) {
