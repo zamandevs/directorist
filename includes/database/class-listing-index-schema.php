@@ -344,9 +344,25 @@ class Listing_Index_Schema {
     }
 
     public static function is_ready() {
-        return self::is_compatible()
-            && self::DATA_VERSION === get_option( self::DATA_VERSION_OPTION, '' )
+        if ( ! self::is_compatible() ) {
+            return false;
+        }
+
+        if ( ! Listing_Index_Lifecycle::is_current_deployment_trusted() ) {
+            Listing_Index_Lifecycle::invalidate_current_site( true );
+            return false;
+        }
+
+        return self::DATA_VERSION === get_option( self::DATA_VERSION_OPTION, '' )
             && self::STATUS_READY === self::status();
+    }
+
+    /**
+     * Stop derived reads until canonical data has been rebuilt and verified.
+     */
+    public static function invalidate_data() {
+        delete_option( self::DATA_VERSION_OPTION );
+        self::mark_status( self::STATUS_NEEDS_REBUILD );
     }
 
     public static function mark_status( $status ) {
@@ -420,6 +436,7 @@ class Listing_Index_Schema {
 
         if ( ! $listing_count ) {
             update_option( self::DATA_VERSION_OPTION, self::DATA_VERSION, false );
+            Listing_Index_Lifecycle::trust_current_deployment();
         }
     }
 

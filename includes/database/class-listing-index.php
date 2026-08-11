@@ -22,6 +22,8 @@ class Listing_Index {
 
     const REBUILD_VERIFICATION_OPTION = 'directorist_listing_index_rebuild_verification';
 
+    const REBUILD_DEPLOYMENT_OPTION = 'directorist_listing_index_rebuild_deployment';
+
     private static $hooks_registered = false;
 
     private static $field_definitions = [];
@@ -380,6 +382,7 @@ class Listing_Index {
         update_option( 'directorist_listing_index_rebuild_cursor', 0, false );
         update_option( self::REBUILD_PHASE_OPTION, 'build', false );
         delete_option( self::REBUILD_VERIFICATION_OPTION );
+        update_option( self::REBUILD_DEPLOYMENT_OPTION, Listing_Index_Lifecycle::deployment_token(), false );
         update_option( 'directorist_listing_index_rebuild_started_mutation', (int) get_option( self::MUTATION_OPTION, 0 ), false );
 
         return true;
@@ -509,20 +512,23 @@ class Listing_Index {
         $current = (int) get_option( self::MUTATION_OPTION, 0 );
 
         $verification['configuration_changed'] = (int) ( Listing_Index_Schema::STATUS_BUILDING !== Listing_Index_Schema::status() );
+        $verification['deployment_changed']    = (int) ( (string) get_option( self::REBUILD_DEPLOYMENT_OPTION, '' ) !== Listing_Index_Lifecycle::deployment_token() );
 
         update_option( self::LAST_REBUILD_MUTATIONS_OPTION, max( 0, $current - $started ), false );
         delete_option( 'directorist_listing_index_rebuild_started_mutation' );
         delete_option( self::REBUILD_PHASE_OPTION );
         delete_option( self::REBUILD_VERIFICATION_OPTION );
+        delete_option( self::REBUILD_DEPLOYMENT_OPTION );
 
         if ( self::has_verification_errors( $verification ) ) {
-            $status = $verification['configuration_changed'] ? Listing_Index_Schema::STATUS_NEEDS_REBUILD : Listing_Index_Schema::STATUS_FAILED;
+            $status = $verification['configuration_changed'] || $verification['deployment_changed'] ? Listing_Index_Schema::STATUS_NEEDS_REBUILD : Listing_Index_Schema::STATUS_FAILED;
             Listing_Index_Schema::mark_status( $status );
             return $verification;
         }
 
         Listing_Index_Schema::mark_status( Listing_Index_Schema::STATUS_READY );
         update_option( Listing_Index_Schema::DATA_VERSION_OPTION, Listing_Index_Schema::DATA_VERSION, false );
+        Listing_Index_Lifecycle::trust_current_deployment();
         delete_option( 'directorist_listing_index_rebuild_cursor' );
 
         return $verification;

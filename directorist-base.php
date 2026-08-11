@@ -232,6 +232,7 @@ final class Directorist_Base {
 
             add_action( 'init', [ self::$instance, 'on_install_update_actions' ] );
             Activation::register_hooks();
+            Directorist\database\Listing_Index_Lifecycle::register_hooks();
             Directorist\database\Listing_Index::register_hooks();
             Directorist\database\Listing_Index_Maintenance::register_hooks();
 

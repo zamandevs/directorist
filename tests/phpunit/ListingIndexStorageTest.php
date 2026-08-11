@@ -605,6 +605,7 @@ class Directorist_Listing_Index_Storage_Test extends WP_UnitTestCase {
                 'mismatched_fields'     => 0,
                 'ambiguous_core_meta'   => 0,
                 'configuration_changed' => 0,
+                'deployment_changed'    => 0,
             ],
             $verification
         );

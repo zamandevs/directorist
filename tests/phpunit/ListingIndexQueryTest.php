@@ -456,7 +456,7 @@ class Directorist_Listing_Index_Query_Test extends WP_UnitTestCase {
 
         $lookup = $this->lookup_query( $args );
 
-        $this->assertSame( [ $this->listing_ids['alpha'], $this->listing_ids['beta'] ], $lookup->ids );
+        $this->assertEqualsCanonicalizing( [ $this->listing_ids['alpha'], $this->listing_ids['beta'] ], $lookup->ids );
         $this->assertStringContainsString( 'value_string IN', $this->captured_sql );
         $this->assertStringNotContainsString( 'postmeta', $this->captured_sql );
     }
