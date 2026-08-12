@@ -237,6 +237,21 @@ class Directorist_REST_AJAX_Behavior_Test extends WP_UnitTestCase {
         $this->assertSame( $before_styles, wp_styles()->queue );
     }
 
+    public function test_rest_collection_permissions_are_stable_for_public_and_authenticated_requests() {
+        $controller = $this->controller();
+        $request    = new WP_REST_Request( 'GET', '/directorist/v2/listings' );
+
+        wp_set_current_user( 0 );
+        $public_result = $controller->get_items_permissions_check( $request );
+
+        $administrator_id = self::factory()->user->create( [ 'role' => 'administrator' ] );
+        wp_set_current_user( $administrator_id );
+        $authenticated_result = $controller->get_items_permissions_check( $request );
+
+        $this->assertTrue( $public_result );
+        $this->assertTrue( $authenticated_result );
+    }
+
     public function test_instant_search_response_context_defaults_to_legacy_and_accepts_known_shapes() {
         $method = new ReflectionMethod( ATBDP_Ajax_Handler::class, 'instant_search_response_context' );
         $method->setAccessible( true );
