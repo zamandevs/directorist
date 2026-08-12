@@ -276,16 +276,20 @@ if ( ! function_exists( 'atbdp_get_listing_order' ) ) :
     function atbdp_get_listing_order( $listing_id ) {
         $order = new WP_Query(
             [
-                'post_type' => 'atbdp_orders',
-                'meta_query' => [
+                'post_type'                 => 'atbdp_orders',
+                'posts_per_page'            => 1,
+                'no_found_rows'             => true,
+                'orderby'                   => 'none',
+                'update_post_meta_cache'    => false,
+                'update_post_term_cache'    => false,
+                'directorist_query_purpose' => 'listing_order_lookup',
+                'meta_query'                => [
                     [
-                        'key' => '_listing_id',
-                        'value' => $listing_id,
+                        'key'     => '_listing_id',
+                        'value'   => $listing_id,
                         'compare' => '=',
                     ]
                 ],
-                'per_page' => 1
-
             ]
         );
 
@@ -1163,28 +1167,35 @@ function atbdp_display_price_range( $price_range ) {
 }
 
 /**
- * Get total listings count.
+ * Get the exact published listing count for a taxonomy term.
  *
- * @param int $term_id Custom Taxonomy term ID.
- * @return   int                    Listings count.
- * @since    4.0.0
- *
+ * @param string $taxonomy    Taxonomy name.
+ * @param int    $term_id     Taxonomy term ID.
+ * @param mixed  $listing_type Optional directory type ID.
+ * @param array  $extra_args  Additional query arguments.
+ * @return int Listings count.
  */
-function atbdp_listings_count_by_category( $term_id, $listing_type = '' ) {
+function directorist_count_listings_by_taxonomy( $taxonomy, $term_id, $listing_type = '', array $extra_args = [] ) {
     $args = [
-        'fields'         => 'ids',
-        'posts_per_page' => -1,
-        'post_type'      => ATBDP_POST_TYPE,
-        'post_status'    => 'publish',
+        'fields'                     => 'ids',
+        'posts_per_page'             => 1,
+        'post_type'                  => ATBDP_POST_TYPE,
+        'post_status'                => 'publish',
+        'no_found_rows'              => false,
+        'orderby'                    => 'none',
+        'ignore_sticky_posts'        => true,
+        'update_post_meta_cache'     => false,
+        'update_post_term_cache'     => false,
+        'directorist_query_purpose'  => 'taxonomy_exact_count',
     ];
 
     if ( ! empty( $listing_type ) && 'all' !== $listing_type ) {
         $args['tax_query'] = [
             'relation' => 'AND',
             [
-                'taxonomy' => ATBDP_CATEGORY,
-                'field' => 'term_id',
-                'terms' => $term_id,
+                'taxonomy'         => $taxonomy,
+                'field'            => 'term_id',
+                'terms'            => $term_id,
                 'include_children' => true
             ],
             [
@@ -1196,16 +1207,25 @@ function atbdp_listings_count_by_category( $term_id, $listing_type = '' ) {
     } else {
         $args['tax_query'] = [
             [
-                'taxonomy' => ATBDP_CATEGORY,
-                'field' => 'term_id',
-                'terms' => $term_id,
+                'taxonomy'         => $taxonomy,
+                'field'            => 'term_id',
+                'terms'            => $term_id,
                 'include_children' => true
             ]
         ];
     }
 
+    $args = array_merge( $args, $extra_args );
+    $args = apply_filters( 'directorist_taxonomy_listing_count_query_arguments', $args, $taxonomy, $term_id, $listing_type );
+
+    \Directorist\database\Listing_Index_Query::register_hooks();
+    $args  = \Directorist\database\Listing_Index_Query::prepare_args( $args );
     $query = new WP_Query( $args );
-    return count( $query->posts );
+    return (int) $query->found_posts;
+}
+
+function atbdp_listings_count_by_category( $term_id, $listing_type = '' ) {
+    return directorist_count_listings_by_taxonomy( ATBDP_CATEGORY, $term_id, $listing_type );
 }
 
 /**
@@ -1278,42 +1298,7 @@ function atbdp_list_categories( $settings ) {
  *
  */
 function atbdp_listings_count_by_location( $term_id, $listing_type = '' ) {
-    $args = [
-        'fields' => 'ids',
-        'posts_per_page' => -1,
-        'post_type' => ATBDP_POST_TYPE,
-        'post_status' => 'publish',
-    ];
-
-    if ( ! empty( $listing_type ) && 'all' !== $listing_type ) {
-        $args['tax_query'] = [
-            'relation' => 'AND',
-            [
-                'taxonomy' => ATBDP_LOCATION,
-                'field' => 'term_id',
-                'terms' => $term_id,
-                'include_children' => true
-            ],
-            [
-                'taxonomy' => ATBDP_TYPE,
-                'field' => 'term_id',
-                'terms' => (int) $listing_type,
-            ]
-        ];
-    } else {
-        $args['tax_query'] = [
-            [
-                'taxonomy' => ATBDP_LOCATION,
-                'field' => 'term_id',
-                'terms' => $term_id,
-                'include_children' => true
-            ]
-        ];
-    }
-
-    $query = new WP_Query( $args );
-    $count = count( $query->posts );
-    return $count;
+    return directorist_count_listings_by_taxonomy( ATBDP_LOCATION, $term_id, $listing_type );
 }
 
 /**
@@ -1387,20 +1372,7 @@ function atbdp_list_locations( $settings ) {
  *
  */
 function atbdp_listings_count_by_tag( $term_id ) {
-
-    $args = [
-        'fields' => 'ids',
-        'posts_per_page' => -1,
-        'post_type' => ATBDP_POST_TYPE,
-        'post_status' => 'publish',
-        'tax_query' => [
-            [
-                'taxonomy' => ATBDP_TAGS,
-                'field' => 'term_id',
-                'terms' => $term_id,
-                'include_children' => true
-            ]
-        ],
+    $extra_args = [
         'meta_query' => apply_filters(
             'atbdp_listings_with_tag_meta_query', [
                 'relation' => 'OR',
@@ -1417,9 +1389,7 @@ function atbdp_listings_count_by_tag( $term_id ) {
         )
     ];
 
-    $query = new WP_Query( $args );
-    $count = count( $query->posts );
-    return $count;
+    return directorist_count_listings_by_taxonomy( ATBDP_TAGS, $term_id, '', $extra_args );
 }
 
 /**
@@ -1560,23 +1530,94 @@ function atbdp_get_listings_orderby_options( $orderby = [] ) {
     return apply_filters( 'atbdp_get_listings_orderby_options', $orderby_options );
 }
 
+function directorist_clear_price_existence_cache() {
+    $GLOBALS['directorist_price_existence_cache'] = [];
+}
+
+function directorist_clear_price_existence_cache_for_meta( $meta_id, $listing_id, $meta_key ) {
+    unset( $meta_id, $listing_id );
+
+    if ( '_price' === $meta_key ) {
+        directorist_clear_price_existence_cache();
+    }
+}
+
+function directorist_clear_price_existence_cache_for_status( $new_status, $old_status, $post ) {
+    if ( $new_status !== $old_status && $post instanceof WP_Post && ATBDP_POST_TYPE === $post->post_type ) {
+        directorist_clear_price_existence_cache();
+    }
+}
+
+function directorist_clear_price_existence_cache_for_deleted_post( $post_id, $post ) {
+    unset( $post_id );
+
+    if ( $post instanceof WP_Post && ATBDP_POST_TYPE === $post->post_type ) {
+        directorist_clear_price_existence_cache();
+    }
+}
+
+function directorist_register_price_existence_cache_invalidation() {
+    $hooks = [
+        'added_post_meta'       => [ 'directorist_clear_price_existence_cache_for_meta', 3 ],
+        'updated_post_meta'     => [ 'directorist_clear_price_existence_cache_for_meta', 3 ],
+        'deleted_post_meta'     => [ 'directorist_clear_price_existence_cache_for_meta', 3 ],
+        'transition_post_status' => [ 'directorist_clear_price_existence_cache_for_status', 3 ],
+        'deleted_post'          => [ 'directorist_clear_price_existence_cache_for_deleted_post', 2 ],
+    ];
+
+    foreach ( $hooks as $hook => $callback ) {
+        if ( false === has_action( $hook, $callback[0] ) ) {
+            add_action( $hook, $callback[0], 10, $callback[1] );
+        }
+    }
+}
+
 function directorist_have_listings_with_price() {
     $args = [
-        'post_type'              => ATBDP_POST_TYPE,
-        'post_status'            => 'publish',
-        'meta_key'               => '_price',
-        'fields'                 => 'ids',
-        'orderby'                => 'none',
-        'no_found_rows'          => true,
-        'posts_per_page'         => 1,
-        'update_post_meta_cache' => false,
-        'update_post_term_cache' => false,
+        'post_type'                 => ATBDP_POST_TYPE,
+        'post_status'               => 'publish',
+        'meta_key'                  => '_price',
+        'fields'                    => 'ids',
+        'orderby'                   => 'none',
+        'no_found_rows'             => true,
+        'posts_per_page'            => 1,
+        'update_post_meta_cache'    => false,
+        'update_post_term_cache'    => false,
+        'directorist_query_purpose' => 'price_existence',
     ];
+
+    $args = apply_filters( 'directorist_price_existence_query_arguments', $args );
+    $cache_enabled = apply_filters( 'directorist_cache_price_existence', true, $args );
+
+    if ( $cache_enabled ) {
+        directorist_register_price_existence_cache_invalidation();
+
+        $cache_key = md5(
+            wp_json_encode(
+                [
+                    'blog_id' => get_current_blog_id(),
+                    'user_id' => get_current_user_id(),
+                    'locale'  => determine_locale(),
+                    'args'    => $args,
+                ]
+            )
+        );
+
+        if ( isset( $GLOBALS['directorist_price_existence_cache'] ) && array_key_exists( $cache_key, $GLOBALS['directorist_price_existence_cache'] ) ) {
+            return $GLOBALS['directorist_price_existence_cache'][ $cache_key ];
+        }
+    }
 
     \Directorist\database\Listing_Index_Query::register_hooks();
     $args                = \Directorist\database\Listing_Index_Query::prepare_args( $args );
     $listings_with_price = new WP_Query( $args );
-    return $listings_with_price->have_posts();
+    $has_price           = $listings_with_price->have_posts();
+
+    if ( $cache_enabled ) {
+        $GLOBALS['directorist_price_existence_cache'][ $cache_key ] = $has_price;
+    }
+
+    return $has_price;
 }
 
 /**

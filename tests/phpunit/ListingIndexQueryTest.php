@@ -1186,6 +1186,7 @@ class Directorist_Listing_Index_Query_Test extends WP_UnitTestCase {
 
     public function test_price_availability_lookup_uses_index_cache_and_mutation_invalidation() {
         wp_cache_flush();
+        directorist_clear_price_existence_cache();
 
         $queries = [];
         $capture = static function( $sql ) use ( &$queries ) {
