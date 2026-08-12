@@ -15,6 +15,7 @@ use WP_Query;
 use WP_REST_Server;
 use WP_Error;
 use Directorist\Helper;
+use Directorist\database\DB;
 use Directorist\Repositories\ListingRepository;
 
 /**
@@ -168,6 +169,7 @@ class Listings_Controller extends Posts_Controller {
         do_action( 'directorist_rest_before_query', 'get_listing_items', $request, $query_args );
 
         $query_results = $this->get_listings( $query_args );
+        $this->prime_collection_response_caches( $query_results['objects'], $request );
 
         $objects = array();
         foreach ( $query_results['objects'] as $object ) {
@@ -546,7 +548,11 @@ class Listings_Controller extends Posts_Controller {
         // Force the post_type argument, since it's not a user input variable.
         $args['post_type'] = $this->post_type;
 
-        return $this->prepare_items_query( $args, $request );
+        $args = $this->prepare_items_query( $args, $request );
+
+        $args['directorist_query_purpose'] = 'rest_collection';
+
+        return $args;
     }
 
     /**
@@ -991,14 +997,22 @@ class Listings_Controller extends Posts_Controller {
         $logic          = get_directorist_type_option( $directory_type, 'similar_listings_logics', 'OR' );
         $relationship   = ( in_array( $logic, array( 'AND', 'OR' ) ) ? $logic : 'OR' );
 
-        $categories   = directorist_get_object_terms( $listing_id, ATBDP_CATEGORY, 'term_id' );
-        $tags         = directorist_get_object_terms( $listing_id, ATBDP_TAGS, 'term_id' );
+        $categories = directorist_get_object_terms( $listing_id, ATBDP_CATEGORY, 'term_id' );
+        $tags       = directorist_get_object_terms( $listing_id, ATBDP_TAGS, 'term_id' );
 
         $args = array(
-            'post_type'      => ATBDP_POST_TYPE,
-            'posts_per_page' => (int) $number,
-            'post__not_in'   => array( $listing_id ),
-            'tax_query'      => array(
+            'post_type'                 => ATBDP_POST_TYPE,
+            'post_status'               => 'publish',
+            'posts_per_page'            => (int) $number,
+            'post__not_in'              => array( $listing_id ),
+            'no_found_rows'             => true,
+            'fields'                    => 'ids',
+            'update_post_meta_cache'    => false,
+            'update_post_term_cache'    => false,
+            'lazy_load_term_meta'       => false,
+            'ignore_sticky_posts'       => true,
+            'directorist_query_purpose' => 'related_ids',
+            'tax_query'                 => array(
                 'relation' => $relationship,
                 array(
                     'taxonomy' => ATBDP_CATEGORY,
@@ -1030,16 +1044,111 @@ class Listings_Controller extends Posts_Controller {
             'compare' => '=',
         );
 
-        $meta_queries = apply_filters( 'atbdp_related_listings_meta_queries', $meta_queries );
+        $meta_queries       = apply_filters( 'atbdp_related_listings_meta_queries', $meta_queries );
         $count_meta_queries = count( $meta_queries );
         if ( $count_meta_queries ) {
             $args['meta_query'] = ( $count_meta_queries > 1 ) ? array_merge( array('relation' => 'AND'), $meta_queries ) : $meta_queries;
         }
 
-        $args    = apply_filters( 'directorist_related_listing_args', $args );
-        $related = new \Directorist\Directorist_Listings( [], 'related', $args, ['cache' => false] );
+        $args = apply_filters( 'directorist_related_listing_args', $args );
 
-        return $related->post_ids();
+        if ( ! apply_filters( 'directorist_optimize_rest_related_listings_query', true, $args, $listing_id ) ) {
+            $related = new \Directorist\Directorist_Listings( [], 'related', $args, [ 'cache' => false ] );
+
+            return $related->post_ids();
+        }
+
+        $args    = $this->normalize_related_tax_query_terms( $args );
+        $related = DB::get_listings_data( $args );
+
+        return $related->ids;
+    }
+
+    /**
+     * Prime attachment posts and metadata once when the requested response can contain images.
+     *
+     * @param WP_Post[]       $listings Listing posts in the response page.
+     * @param WP_REST_Request $request REST request.
+     * @return void
+     */
+    protected function prime_collection_response_caches( $listings, $request ) {
+        $fields = $this->get_fields_for_response( $request );
+
+        if ( ! array_intersect( array( 'images', 'fields' ), $fields ) || ! is_callable( '_prime_post_caches' ) ) {
+            return;
+        }
+
+        $attachment_ids = array();
+
+        foreach ( $listings as $listing ) {
+            $preview_id = directorist_get_listing_preview_image( $listing->ID );
+
+            if ( $preview_id ) {
+                $attachment_ids[] = $preview_id;
+            }
+
+            $attachment_ids = array_merge( $attachment_ids, directorist_get_listing_gallery_images( $listing->ID ) );
+        }
+
+        $attachment_ids = array_values( array_unique( wp_parse_id_list( $attachment_ids ) ) );
+
+        if ( $attachment_ids ) {
+            _prime_post_caches( $attachment_ids, false, true );
+        }
+    }
+
+    /**
+     * Avoid repeated term-id transformation queries for bounded related-ID lookups.
+     *
+     * @param array $args Related listing query arguments after public filters.
+     * @return array
+     */
+    protected function normalize_related_tax_query_terms( $args ) {
+        if ( empty( $args['tax_query'] ) || ! apply_filters( 'directorist_optimize_related_tax_query_terms', true, $args ) ) {
+            return $args;
+        }
+
+        foreach ( $args['tax_query'] as $key => $clause ) {
+            if ( ! is_int( $key ) ||
+                ! is_array( $clause ) ||
+                'term_id' !== ( $clause['field'] ?? '' ) ||
+                ! empty( $clause['include_children'] ) ||
+                empty( $clause['taxonomy'] )
+            ) {
+                continue;
+            }
+
+            $term_ids = wp_parse_id_list( $clause['terms'] ?? array() );
+
+            if ( is_taxonomy_hierarchical( $clause['taxonomy'] ) ) {
+                foreach ( $term_ids as $term_id ) {
+                    $term_ids = array_merge( $term_ids, get_term_children( $term_id, $clause['taxonomy'] ) );
+                }
+
+                $term_ids = array_values( array_unique( wp_parse_id_list( $term_ids ) ) );
+            }
+
+            $term_taxonomy_ids = array();
+
+            foreach ( $term_ids as $term_id ) {
+                $term = get_term( $term_id, $clause['taxonomy'] );
+
+                if ( ! $term || is_wp_error( $term ) ) {
+                    $term_taxonomy_ids = array();
+                    break;
+                }
+
+                $term_taxonomy_ids[] = (int) $term->term_taxonomy_id;
+            }
+
+            if ( $term_taxonomy_ids ) {
+                $args['tax_query'][ $key ]['field']            = 'term_taxonomy_id';
+                $args['tax_query'][ $key ]['terms']            = $term_taxonomy_ids;
+                $args['tax_query'][ $key ]['include_children'] = false;
+            }
+        }
+
+        return $args;
     }
 
     /**

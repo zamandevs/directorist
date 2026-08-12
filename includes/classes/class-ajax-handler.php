@@ -267,50 +267,86 @@ if ( ! class_exists( 'ATBDP_Ajax_Handler' ) ) :
 
             $listings = new Directorist\Directorist_Listings( $args, $type );
 
-            ob_start();
-            if ( 'list' === $listings->view ) {
-                $listings->render_list_view( $listings->post_ids() );
-            } else {
-                $listings->render_grid_view( $listings->post_ids() );
-            }
-            $render_listings = ob_get_clean();
+            $response_context = $this->instant_search_response_context();
 
-            ob_start();
-            $listings->archive_view_template();
-            $archive_view           = ob_get_clean();
+            $render_listings = '';
+            if ( in_array( $response_context, [ 'legacy', 'append' ], true ) ) {
+                ob_start();
+                if ( 'list' === $listings->view ) {
+                    $listings->render_list_view( $listings->post_ids() );
+                } else {
+                    $listings->render_grid_view( $listings->post_ids() );
+                }
+                $render_listings = ob_get_clean();
+            }
+
+            $archive_view = '';
+            if ( in_array( $response_context, [ 'legacy', 'filter' ], true ) ) {
+                ob_start();
+                $listings->archive_view_template();
+                $archive_view = ob_get_clean();
+            }
 
             $sortby_dropdown = '';
 
-            if ( $listings->display_sortby_dropdown ) {
+            if ( in_array( $response_context, [ 'legacy', 'filter' ], true ) && $listings->display_sortby_dropdown ) {
                 ob_start();
                 $listings->sortby_dropdown_template();
                 $sortby_dropdown = ob_get_clean();
             }
 
-            $display_listings_count = get_directorist_option( 'display_listings_count', true );
-            $category_id            = ! empty( $_POST['in_cat'] ) ? absint( $_POST['in_cat'] ) : 0;
-            $category               = get_term_by( 'id', $category_id, ATBDP_CATEGORY );
-            $location_id            = ! empty( $_POST['in_loc'] ) ? absint( $_POST['in_loc'] ) : 0;
-            $location               = get_term_by( 'id', $location_id, ATBDP_LOCATION );
+            $header_title = '';
+            $category     = false;
+            $location     = false;
+
+            if ( in_array( $response_context, [ 'legacy', 'filter' ], true ) ) {
+                $display_listings_count = get_directorist_option( 'display_listings_count', true );
+                $category_id            = ! empty( $_POST['in_cat'] ) ? absint( $_POST['in_cat'] ) : 0;
+                $category               = get_term_by( 'id', $category_id, ATBDP_CATEGORY );
+                $location_id            = ! empty( $_POST['in_loc'] ) ? absint( $_POST['in_loc'] ) : 0;
+                $location               = get_term_by( 'id', $location_id, ATBDP_LOCATION );
+                $header_title           = $display_listings_count ? $listings->listings_header_title() : '';
+            }
 
             // Fire hook for extensions to track search results
             do_action( 'directorist_instant_search_completed', $listings, $args );
 
+            $directory_type = '';
+            if ( in_array( $response_context, [ 'legacy', 'directory' ], true ) ) {
+                $directory_type = $listings->render_shortcode();
+            }
+
             wp_send_json(
                 [
-                    'search_result'  => $archive_view,
+                    'search_result'   => $archive_view,
                     'sortby_dropdown' => $sortby_dropdown,
-                    'directory_type' => $listings->render_shortcode(),
-                    'view_as'        => $archive_view,
-                    'count'          => $listings->query_results->total,
-                    'header_title'   => $display_listings_count ? $listings->listings_header_title() : '',
-                    'category_name'  => $category ? $category->name : '',
-                    'location_name'  => $location ? $location->name : '',
+                    'directory_type'  => $directory_type,
+                    'view_as'         => $archive_view,
+                    'count'           => $listings->query_results->total,
+                    'header_title'    => $header_title,
+                    'category_name'   => $category ? $category->name : '',
+                    'location_name'   => $location ? $location->name : '',
 
                     'render_listings' => $render_listings,
-                    'view' => $listings->view
+                    'view'            => $listings->view,
                 ]
             );
+        }
+
+        /**
+         * Return the response shape requested by the bundled instant-search client.
+         *
+         * Requests without a context retain the complete legacy response for old
+         * scripts, extensions, and independently cached frontend assets.
+         *
+         * @return string
+         */
+        protected function instant_search_response_context() {
+            // phpcs:ignore WordPress.Security.NonceVerification.Missing -- The caller verifies the instant-search nonce before this method runs.
+            $requested = ! empty( $_POST['response_context'] ) ? sanitize_key( wp_unslash( $_POST['response_context'] ) ) : 'legacy';
+            $context   = in_array( $requested, [ 'filter', 'directory', 'append' ], true ) ? $requested : 'legacy';
+
+            return (string) apply_filters( 'directorist_instant_search_response_context', $context, $requested );
         }
 
         // directorist_quick_ajax_login

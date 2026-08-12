@@ -11,6 +11,9 @@ import initSearchCategoryCustomFields from './category-custom-fields';
 
 	// Track last submitted form_data to skip duplicate AJAX requests
 	let lastSubmittedFormData = '';
+	let activeInstantSearchRequest = null;
+	let activeDirectoryRequest = null;
+	let pendingDirectoryType = '';
 
 	const initial_view = new URLSearchParams(window.location.search).get(
 		'view'
@@ -42,8 +45,13 @@ import initSearchCategoryCustomFields from './category-custom-fields';
 
 		// Instant Search Data
 		const instant_search_data = prepareInstantSearchData(searchElm);
+		instant_search_data.response_context = 'filter';
 
-		$.ajax({
+		if (activeInstantSearchRequest) {
+			activeInstantSearchRequest.abort();
+		}
+
+		activeInstantSearchRequest = $.ajax({
 			url: directorist.ajaxurl,
 			type: 'POST',
 			data: instant_search_data,
@@ -144,6 +152,9 @@ import initSearchCategoryCustomFields from './category-custom-fields';
 				scrollingPage = 1;
 				infinitePaginationCompleted = false;
 			},
+			complete: function () {
+				activeInstantSearchRequest = null;
+			},
 		});
 	}
 
@@ -154,8 +165,20 @@ import initSearchCategoryCustomFields from './category-custom-fields';
 
 		// Instant Search Data
 		const instant_search_data = prepareInstantSearchData(searchElm);
+		const directoryType = instant_search_data.directory_type || '';
 
-		$.ajax({
+		if (activeDirectoryRequest && pendingDirectoryType === directoryType) {
+			return;
+		}
+
+		if (activeDirectoryRequest) {
+			activeDirectoryRequest.abort();
+		}
+
+		pendingDirectoryType = directoryType;
+		instant_search_data.response_context = 'directory';
+
+		activeDirectoryRequest = $.ajax({
 			url: directorist.ajaxurl,
 			type: 'POST',
 			data: instant_search_data,
@@ -189,6 +212,10 @@ import initSearchCategoryCustomFields from './category-custom-fields';
 				scrollingPage = 1;
 				infinitePaginationCompleted = false;
 			},
+			complete: function () {
+				activeDirectoryRequest = null;
+				pendingDirectoryType = '';
+			},
 		});
 	}
 
@@ -209,6 +236,7 @@ import initSearchCategoryCustomFields from './category-custom-fields';
 		const instant_search_data = {
 			...preparedData,
 			paged: scrollingPage,
+			response_context: 'append',
 		};
 
 		$.ajax({
