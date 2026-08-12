@@ -218,6 +218,10 @@ class Directorist_Listings {
 
     protected $deferred_data = [];
 
+    protected $archive_submission_form_fields = null;
+
+    protected $archive_search_forms = [];
+
     protected $deferred_props = [
         'categories_fields',
         'locations_fields',
@@ -1260,7 +1264,7 @@ class Directorist_Listings {
 
         $args = [
             'listings'   => $this,
-            'searchform' => new Directorist_Listing_Search_Form( $this->type, $this->current_listing_type, $search_field_atts ),
+            'searchform' => $this->get_archive_search_form( $this->type, $search_field_atts ),
         ];
 
         switch ( $this->sidebar ) {
@@ -1280,10 +1284,7 @@ class Directorist_Listings {
         // Load the template
         Helper::get_template(
             $template,
-            [
-                'listings'   => $this,
-                'searchform' => new Directorist_Listing_Search_Form( $this->type, $this->current_listing_type, $search_field_atts ),
-            ],
+            $args,
             'listings_archive',
         );
 
@@ -2179,7 +2180,7 @@ class Directorist_Listings {
             $this->render_badge_template( $field );
         } else {
             $original_field         = '';
-            $submission_form_fields = get_term_meta( $this->current_listing_type, 'submission_form_fields', true );
+            $submission_form_fields = $this->get_archive_submission_form_fields();
 
             if ( isset( $field['original_widget_key'] ) && isset( $submission_form_fields['fields'][$field['original_widget_key']] ) ) {
                 $original_field = $submission_form_fields['fields'][$field['original_widget_key']];
@@ -2282,6 +2283,23 @@ class Directorist_Listings {
                 //echo wp_kses_post( $after );
             }
         }
+    }
+
+    protected function get_archive_submission_form_fields() {
+        $should_cache = apply_filters( 'directorist_cache_listing_archive_submission_fields', true, $this );
+
+        if ( ! $should_cache || null === $this->archive_submission_form_fields ) {
+            $fields = get_term_meta( $this->current_listing_type, 'submission_form_fields', true );
+            $fields = is_array( $fields ) ? $fields : [];
+
+            if ( ! $should_cache ) {
+                return $fields;
+            }
+
+            $this->archive_submission_form_fields = $fields;
+        }
+
+        return $this->archive_submission_form_fields;
     }
 
     public function is_custom_field( $data ) {
@@ -2423,7 +2441,7 @@ class Directorist_Listings {
 
         $args = [
             'listings'   => $this,
-            'searchform' => new Directorist_Listing_Search_Form( $this->type, $this->current_listing_type, $search_field_atts ),
+            'searchform' => $this->get_archive_search_form( $this->type, $search_field_atts ),
         ];
         Helper::get_template( 'archive/search-form', $args );
     }
@@ -2438,7 +2456,7 @@ class Directorist_Listings {
 
         $args = [
             'listings'   => $this,
-            'searchform' => new Directorist_Listing_Search_Form( 'search_result', $this->current_listing_type, $search_field_atts ),
+            'searchform' => $this->get_archive_search_form( 'search_result', $search_field_atts ),
         ];
         Helper::get_template( 'archive/basic-search-form', $args );
     }
@@ -2453,7 +2471,7 @@ class Directorist_Listings {
 
         $args = [
             'listings'   => $this,
-            'searchform' => new Directorist_Listing_Search_Form( 'search_result', $this->current_listing_type, $search_field_atts ),
+            'searchform' => $this->get_archive_search_form( 'search_result', $search_field_atts ),
         ];
         Helper::get_template( 'archive/advance-search-form', $args );
     }
@@ -2476,7 +2494,7 @@ class Directorist_Listings {
 
         $args = [
             'listings'   => $this,
-            'searchform' => new Directorist_Listing_Search_Form( $this->type, $this->current_listing_type, $search_field_atts ),
+            'searchform' => $this->get_archive_search_form( $this->type, $search_field_atts ),
         ];
         Helper::get_template( 'archive/mobile-search-form', $args );
     }
@@ -2512,10 +2530,26 @@ class Directorist_Listings {
 
         $args = [
             'listings'   => $this,
-            'searchform' => new Directorist_Listing_Search_Form( $this->type, $this->current_listing_type, $search_field_atts ),
+            'searchform' => $this->get_archive_search_form( $this->type, $search_field_atts ),
         ];
 
         Helper::get_template( 'archive/search-form', $args );
+    }
+
+    protected function get_archive_search_form( $type, array $atts = [] ) {
+        $should_cache = apply_filters( 'directorist_cache_listing_search_form_models', true, $type, $atts, $this );
+
+        if ( ! $should_cache ) {
+            return new Directorist_Listing_Search_Form( $type, $this->current_listing_type, $atts );
+        }
+
+        $cache_key = md5( serialize( [ $type, $this->current_listing_type, $atts ] ) );
+
+        if ( ! isset( $this->archive_search_forms[ $cache_key ] ) ) {
+            $this->archive_search_forms[ $cache_key ] = new Directorist_Listing_Search_Form( $type, $this->current_listing_type, $atts );
+        }
+
+        return $this->archive_search_forms[ $cache_key ];
     }
 
     public function single_line_display_class() {

@@ -10,6 +10,8 @@ use Directorist\Asset_Loader\Render_Context;
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 trait URI_Helper {
+    protected static $template_path_cache = [];
+
     public static function get_template_contents( $template, $args = [] ) {
         ob_start();
         self::get_template( $template, $args );
@@ -27,14 +29,30 @@ trait URI_Helper {
     }
 
     public static function template_path( $template_name, $args = [] ) {
-        $templates = trailingslashit( self::theme_template_directory() ) . "{$template_name}.php";
-        $template  = locate_template( $templates );
+        $theme_template_directory = self::theme_template_directory();
+        $templates = trailingslashit( $theme_template_directory ) . "{$template_name}.php";
+        $cache_key = md5(
+            serialize(
+                [
+                    $templates,
+                    function_exists( 'get_stylesheet_directory' ) ? get_stylesheet_directory() : '',
+                    function_exists( 'get_template_directory' ) ? get_template_directory() : '',
+                    self::template_directory(),
+                ]
+            )
+        );
 
-        if ( ! $template ) {
-            $template = self::template_directory() . "{$template_name}.php";;
+        if ( ! isset( self::$template_path_cache[ $cache_key ] ) ) {
+            $template = locate_template( $templates );
+
+            if ( ! $template ) {
+                $template = self::template_directory() . "{$template_name}.php";
+            }
+
+            self::$template_path_cache[ $cache_key ] = $template;
         }
 
-        return apply_filters( 'directorist_template_file_path', $template, $template_name, $args );
+        return apply_filters( 'directorist_template_file_path', self::$template_path_cache[ $cache_key ], $template_name, $args );
     }
 
     public static function get_template( $template, $args = [], $shortcode_key = '' ) {
