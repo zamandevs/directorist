@@ -30,7 +30,19 @@ function atbdp_get_extension_template( string $base_path = '', string $file_path
     $template = atbdp_get_extension_template_path( $base_path, $file_path, $theme_dir );
 
     if ( file_exists( $template ) ) {
+        $context = \Directorist\Asset_Loader\Render_Context::before(
+            $file_path,
+            $template,
+            is_array( $data ) ? $data : [],
+            [
+                'source'    => 'extension',
+                'extension' => \Directorist\Asset_Loader\Render_Context::extension_from_file( $base_path ),
+            ]
+        );
+
         include $template;
+
+        \Directorist\Asset_Loader\Render_Context::after( $file_path, $template, is_array( $data ) ? $data : [], $context );
     }
 }
 
@@ -75,7 +87,11 @@ function atbdp_get_template( $template_file, $args = [] ) {
     }
 
     if ( file_exists( $file ) ) {
+        $context = \Directorist\Asset_Loader\Render_Context::before( $template_file, $file, $args );
+
         include $file;
+
+        \Directorist\Asset_Loader\Render_Context::after( $template_file, $file, $args, $context );
     }
 }
 

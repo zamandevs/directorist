@@ -44,28 +44,10 @@ function directorist_register_blocks() {
 
     // wp_set_script_translations( 'directorist-block-editor', 'directorist' );
 
-    $styles = [
-        'directorist-main-style',
-        'directorist-select2-style',
-        'directorist-ez-media-uploader-style',
-        'directorist-swiper-style',
-        'directorist-sweetalert-style'
-    ];
-
-    if ( AssetHelper::map_type() === 'openstreet' ) {
-        $styles[] = 'directorist-openstreet-map-leaflet';
-        $styles[] = 'directorist-openstreet-map-openstreet';
-    }
-
-    if ( (bool) get_directorist_option( 'legacy_icon' ) ) {
-        $styles[] = 'directorist-line-awesome';
-        $styles[] = 'directorist-font-awesome';
-        $styles[] = 'directorist-unicons';
-    }
-
     $args = [
         'render_callback' => 'directorist_block_render_callback',
-        'style'           => $styles,
+        'style'           => directorist_get_block_frontend_style_handles(),
+        'editor_style'    => directorist_get_block_editor_style_handles(),
     ];
 
     register_block_type( __DIR__ . '/build/listing-form', $args );
@@ -90,6 +72,56 @@ function directorist_register_blocks() {
 }
 
 add_action( 'init', 'directorist_register_blocks' );
+
+/**
+ * Get frontend style handles declared by Directorist dynamic blocks.
+ *
+ * @return array
+ */
+function directorist_get_block_frontend_style_handles() {
+    if ( \Directorist\Asset_Loader\Asset_Compatibility::is_legacy() ) {
+        return directorist_get_block_legacy_style_handles();
+    }
+
+    return apply_filters( 'directorist_block_frontend_style_handles', [ 'directorist-main-style' ] );
+}
+
+/**
+ * Get editor style handles declared by Directorist dynamic blocks.
+ *
+ * @return array
+ */
+function directorist_get_block_editor_style_handles() {
+    return apply_filters( 'directorist_block_editor_style_handles', directorist_get_block_legacy_style_handles() );
+}
+
+/**
+ * Get the broad block style set used by the editor and compatibility mode.
+ *
+ * @return array
+ */
+function directorist_get_block_legacy_style_handles() {
+    $styles = [
+        'directorist-main-style',
+        'directorist-select2-style',
+        'directorist-ez-media-uploader-style',
+        'directorist-swiper-style',
+        'directorist-sweetalert-style',
+    ];
+
+    if ( AssetHelper::map_type() === 'openstreet' ) {
+        $styles[] = 'directorist-openstreet-map-leaflet';
+        $styles[] = 'directorist-openstreet-map-openstreet';
+    }
+
+    if ( (bool) get_directorist_option( 'legacy_icon' ) ) {
+        $styles[] = 'directorist-line-awesome';
+        $styles[] = 'directorist-font-awesome';
+        $styles[] = 'directorist-unicons';
+    }
+
+    return apply_filters( 'directorist_block_legacy_style_handles', $styles );
+}
 
 /**
  * Register gutenberg block category.
@@ -312,12 +344,12 @@ function directorist_register_blocks_common_assets() {
             'directorist-blocks-common',
             plugin_dir_url( __FILE__ ) . 'assets/index' . ( is_rtl() ? '-rtl.css' : '.css' ),
             [],
-            isset( $asset['version'] ) ?? ATBDP_VERSION
+            $asset['version'] ?? ATBDP_VERSION
         );
     }
 }
 
-add_action( 'enqueue_block_assets', 'directorist_register_blocks_common_assets' );
+add_action( 'enqueue_block_editor_assets', 'directorist_register_blocks_common_assets' );
 
 function _directorist_render_editor_signin_signup_template( $attributes = [] ) {
     ob_start();

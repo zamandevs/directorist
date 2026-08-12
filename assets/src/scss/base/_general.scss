@@ -38,7 +38,7 @@
 }
 
 .directorist-icon-mask {
-	&:after {
+	&:not(.directorist-icon--font):after {
 		content: "";
 		display: block;
 		width: 18px;
@@ -47,6 +47,31 @@
 		mask-repeat: no-repeat;
 		mask-position: center;
 		mask-image: var(--directorist-icon);
+	}
+}
+
+.directorist-icon--font {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	line-height: 1;
+	color: currentColor;
+
+	&:before {
+		line-height: 1;
+	}
+
+	&.directorist-icon-mask:after {
+		content: none !important;
+		display: none !important;
+	}
+}
+
+.directorist-rating-meta i.directorist-icon--font {
+	color: var(--directorist-color-warning);
+
+	&.star-empty {
+		color: #d1d1d1;
 	}
 }
 

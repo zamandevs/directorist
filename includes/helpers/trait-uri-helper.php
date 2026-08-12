@@ -5,6 +5,8 @@
 
 namespace Directorist;
 
+use Directorist\Asset_Loader\Render_Context;
+
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 trait URI_Helper {
@@ -53,7 +55,20 @@ trait URI_Helper {
                 $old_template_data = isset( $GLOBALS['atbdp_template_data'] ) ? $GLOBALS['atbdp_template_data'] : null;
                 $GLOBALS['atbdp_template_data'] = $args;
 
+                $context = Render_Context::before(
+                    $ex_args['file_path'] ? $ex_args['file_path'] : $template,
+                    $extension_path,
+                    $args,
+                    [
+                        'source'        => 'extension',
+                        'shortcode_key' => $shortcode_key,
+                        'extension'     => Render_Context::extension_from_file( $ex_args['template_directory'] ),
+                    ]
+                );
+
                 include $extension_path;
+
+                Render_Context::after( $context['template'], $extension_path, $args, $context );
 
                 $GLOBALS['atbdp_template_data'] = $old_template_data;
                 return;
@@ -63,11 +78,15 @@ trait URI_Helper {
         $template = apply_filters( 'directorist_template', $template, $args );
         $file = self::template_path( $template, $args );
 
+        $context = Render_Context::before( $template, $file, $args );
+
         do_action( 'before_directorist_template_loaded', $template, $file, $args );
 
         if ( file_exists( $file ) ) {
             include $file;
         }
+
+        Render_Context::after( $template, $file, $args, $context );
     }
 
     public static function get_theme_template_path_for( $template ) {

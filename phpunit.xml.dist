@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit
+	bootstrap="tests/bootstrap.php"
+	colors="true"
+	convertErrorsToExceptions="true"
+	convertNoticesToExceptions="true"
+	convertWarningsToExceptions="true"
+	beStrictAboutOutputDuringTests="false"
+>
+	<testsuites>
+		<testsuite name="Directorist Behavior Lock Test Suite">
+			<directory suffix="Test.php">tests/phpunit</directory>
+		</testsuite>
+	</testsuites>
+
+	<php>
+		<env name="WP_PHPUNIT__TESTS_CONFIG" value="tests/wp-tests-config.php"/>
+		<env name="WP_PHPUNIT__TABLE_PREFIX" value="wptests_"/>
+		<env name="WP_TESTS_DB_NAME" value="directorist_tests"/>
+		<env name="WP_TESTS_DB_USER" value="root"/>
+		<env name="WP_TESTS_DB_PASSWORD" value=""/>
+		<env name="WP_TESTS_DB_HOST" value="localhost"/>
+		<env name="WP_TESTS_DOMAIN" value="directorist.test"/>
+		<env name="WP_TESTS_EMAIL" value="admin@example.org"/>
+		<env name="WP_TESTS_TITLE" value="Directorist Tests"/>
+	</php>
+</phpunit>

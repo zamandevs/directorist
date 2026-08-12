@@ -3,6 +3,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 use Directorist\Asset_Loader\Localized_Data;
+use Directorist\Asset_Loader\Helper as Asset_Loader_Helper;
 use Directorist\Multi_Directory\Multi_Directory_Manager;
 /**
  * Setup wizard class
@@ -434,9 +435,9 @@ class Directorist_Setup_Wizard {
         wp_enqueue_script( 'directorist-select2' );
         wp_enqueue_script( 'directorist-geolocation', DIRECTORIST_BUILD_ASSETS . 'js/global/geolocation.js' );
 
-        wp_register_style( 'directorist-font-awesome', DIRECTORIST_ICON_URL . 'font-awesome/css/all.css', [], ATBDP_VERSION );
-        wp_register_style( 'directorist-line-awesome', DIRECTORIST_ICON_URL . 'line-awesome/css/line-awesome.css', [], ATBDP_VERSION );
-        wp_register_style( 'directorist-admin-style', DIRECTORIST_BUILD_ASSETS . 'css/admin/main.css', [ 'directorist-font-awesome', 'directorist-line-awesome' ], ATBDP_VERSION );
+        wp_register_style( 'directorist-font-awesome', Asset_Loader_Helper::asset_file_url( DIRECTORIST_ICON_URL . 'font-awesome/css/all', 'css' ), [], ATBDP_VERSION );
+        wp_register_style( 'directorist-line-awesome', Asset_Loader_Helper::asset_file_url( DIRECTORIST_ICON_URL . 'line-awesome/css/line-awesome', 'css' ), [], ATBDP_VERSION );
+        wp_register_style( 'directorist-admin-style', Asset_Loader_Helper::asset_file_url( DIRECTORIST_BUILD_ASSETS . 'css/admin/main', 'css' ), [ 'directorist-font-awesome', 'directorist-line-awesome' ], ATBDP_VERSION );
         wp_register_script( 'directorist-admin-setup-wizard-script', DIRECTORIST_BUILD_ASSETS . 'js/admin/setup-wizard.js', ['jquery'], ATBDP_VERSION, true );
 
         wp_enqueue_script( 'directorist-openstreet-layers', DIRECTORIST_VENDOR_JS . 'openstreet-map/openstreetlayers.js' );

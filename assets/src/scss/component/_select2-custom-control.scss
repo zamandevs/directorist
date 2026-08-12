@@ -35,9 +35,17 @@
         width: 15px;
         height: 15px;
     }
+    .directorist-icon--font {
+        font-size: 15px;
+    }
 }
 
 .directorist-select2-addon .directorist-icon-mask::after{
     width: 13px;
     height: 13px;
+}
+
+.directorist-select2-addon .directorist-icon--font {
+    font-size: 13px;
+    color: var(--directorist-color-body);
 }

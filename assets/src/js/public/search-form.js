@@ -6,6 +6,7 @@ import {
 	watchFieldChanges as watchFieldChangesBase,
 } from '../global/components/conditional-logic';
 import debounce from '../global/components/debounce';
+import { renderDirectoristIcon } from '../lib/helper';
 import './../global/components/select2-custom-control';
 import './../global/components/setup-select2';
 import initSearchCategoryCustomFields from './components/category-custom-fields';
@@ -1864,16 +1865,11 @@ document.addEventListener('DOMContentLoaded', () => {
 										success: function success(data) {
 											let res = '';
 
-											let currentIconURL =
-												directorist.assets_url +
-												'icons/font-awesome/svgs/solid/paper-plane.svg';
-											let currentIconHTML =
-												directorist.icon_markup
-													.replace(
-														'##URL##',
-														currentIconURL
-													)
-													.replace('##CLASS##', '');
+											let currentIconHTML = renderDirectoristIcon(
+												'fas fa-paper-plane',
+												'',
+												'icons/font-awesome/svgs/solid/paper-plane.svg'
+											);
 											let currentLocationIconHTML =
 												"<span class='location-icon'>" +
 												currentIconHTML +
@@ -1881,13 +1877,11 @@ document.addEventListener('DOMContentLoaded', () => {
 											let currentLocationAddressHTML =
 												"<span class='location-address'></span>";
 
-											let iconURL =
-												directorist.assets_url +
-												'icons/font-awesome/svgs/solid/map-marker-alt.svg';
-											let iconHTML =
-												directorist.icon_markup
-													.replace('##URL##', iconURL)
-													.replace('##CLASS##', '');
+											let iconHTML = renderDirectoristIcon(
+												'fas fa-map-marker-alt',
+												'',
+												'icons/font-awesome/svgs/solid/map-marker-alt.svg'
+											);
 											let locationIconHTML =
 												"<span class='location-icon'>" +
 												iconHTML +
