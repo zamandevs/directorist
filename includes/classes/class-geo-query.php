@@ -1,23 +1,31 @@
 <?php
 if ( ! class_exists( 'ATBDP_GJSGeoQuery' ) ) {
     class ATBDP_GJSGeoQuery {
+        private static $hooks_registered = false;
+
         public static function Instance() {
             static $instance = null;
             if ( $instance === null ) {
+                self::register_hooks();
                 $instance = new self();
             }
             return $instance;
         }
 
-        private function __construct() {
-            add_filter( 'posts_fields', [ $this, 'posts_fields' ], 10, 2 );
-            add_filter( 'posts_join', [ $this, 'posts_join' ], 10, 2 );
-            add_filter( 'posts_where', [ $this, 'posts_where' ], 10, 2 );
-            add_filter( 'posts_orderby', [ $this, 'posts_orderby' ], 10, 2 );
+        public static function register_hooks() {
+            if ( self::$hooks_registered ) {
+                return;
+            }
+
+            self::$hooks_registered = true;
+            add_filter( 'posts_fields', [ self::class, 'posts_fields' ], 10, 2 );
+            add_filter( 'posts_join', [ self::class, 'posts_join' ], 10, 2 );
+            add_filter( 'posts_where', [ self::class, 'posts_where' ], 10, 2 );
+            add_filter( 'posts_orderby', [ self::class, 'posts_orderby' ], 10, 2 );
         }
 
         // add a calculated "distance" parameter to the sql query, using a haversine formula
-        public function posts_fields( $sql, $query ) {
+        public static function posts_fields( $sql, $query ) {
             global $wpdb;
             $atbdp_geo_query = $query->get( 'atbdp_geo_query' );
             if ( $atbdp_geo_query ) {
@@ -25,12 +33,12 @@ if ( ! class_exists( 'ATBDP_GJSGeoQuery' ) ) {
                 if ( $sql ) {
                     $sql .= ', ';
                 }
-                $sql .= $this->haversine_term( $atbdp_geo_query ) . ' AS atbdp_geo_query_distance';
+                $sql .= self::haversine_term( $atbdp_geo_query ) . ' AS atbdp_geo_query_distance';
             }
             return $sql;
         }
 
-        public function posts_join( $sql, $query ) {
+        public static function posts_join( $sql, $query ) {
             global $wpdb;
             $atbdp_geo_query = $query->get( 'atbdp_geo_query' );
             if ( $atbdp_geo_query ) {
@@ -45,7 +53,7 @@ if ( ! class_exists( 'ATBDP_GJSGeoQuery' ) ) {
         }
 
         // match on the right metafields, and filter by distance
-        public function posts_where( $sql, $query ) {
+        public static function posts_where( $sql, $query ) {
             global $wpdb;
             $atbdp_geo_query = $query->get( 'atbdp_geo_query' );
         
@@ -62,7 +70,7 @@ if ( ! class_exists( 'ATBDP_GJSGeoQuery' ) ) {
                 }
         
                 // Generate the Haversine formula for distance
-                $haversine = $this->haversine_term( $atbdp_geo_query );
+                $haversine = self::haversine_term( $atbdp_geo_query );
         
                 // Prepare SQL with BETWEEN for min and max distance
                 $new_sql = '( atbdp_geo_query_lat.meta_key = %s AND atbdp_geo_query_lng.meta_key = %s AND ' . $haversine . ' BETWEEN %f AND %f )';
@@ -73,7 +81,7 @@ if ( ! class_exists( 'ATBDP_GJSGeoQuery' ) ) {
         }
 
         // handle ordering
-        public function posts_orderby( $sql, $query ) {
+        public static function posts_orderby( $sql, $query ) {
             $atbdp_geo_query = $query->get( 'atbdp_geo_query' );
             if ( $atbdp_geo_query ) {
                 $orderby = $query->get( 'orderby' );
@@ -107,7 +115,7 @@ if ( ! class_exists( 'ATBDP_GJSGeoQuery' ) ) {
             return false;
         }
 
-        private function haversine_term( $atbdp_geo_query ) {
+        private static function haversine_term( $atbdp_geo_query ) {
             global $wpdb;
             $units = 'miles';
             if ( ! empty( $atbdp_geo_query['units'] ) ) {
@@ -136,7 +144,7 @@ if ( ! class_exists( 'ATBDP_GJSGeoQuery' ) ) {
             return $haversine;
         }
     }
-    ATBDP_GJSGeoQuery::Instance();
+    ATBDP_GJSGeoQuery::register_hooks();
 }
 
 if ( ! function_exists( 'atbdp_the_distance' ) ) {

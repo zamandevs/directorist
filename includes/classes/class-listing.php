@@ -25,7 +25,7 @@ if ( ! class_exists( 'ATBDP_Listing' ) ) :
          * @var object|ATBDP_Add_Listing
          * @since 1.0
          */
-        public $add_listing;
+        protected $add_listing;
 
         /**
          * ATBDP_Add_Listing Object.
@@ -33,12 +33,11 @@ if ( ! class_exists( 'ATBDP_Listing' ) ) :
          * @var object|ATBDP_Add_Listing
          * @since 1.0
          */
-        public $db;
+        protected $db;
 
         public function __construct() {
             $this->include_files();
-            $this->add_listing = new ATBDP_Add_Listing;
-            $this->db = new ATBDP_Listing_DB;
+            $this->register_child_service_hooks();
             // for search functionality
             // add_action('pre_get_posts', array($this, 'modify_search_query'), 1, 10);
             // remove adjacent_posts_rel_link_wp_head for accurate post views
@@ -51,14 +50,98 @@ if ( ! class_exists( 'ATBDP_Listing' ) ) :
             // add_action('template_redirect', array($this, 'atbdp_listing_status_controller')); // This method has been renamed to update_listing_status_after_review
             add_action( 'template_redirect', [ $this, 'update_listing_status_after_review' ] );
 
-            // listing filter
-            add_action( 'restrict_manage_posts', [$this, 'atbdp_listings_filter'] );
-            add_filter( 'parse_query', [$this, 'listing_type_search_query'] );
+            if ( is_admin() ) {
+                // listing filter
+                add_action( 'restrict_manage_posts', [$this, 'atbdp_listings_filter'] );
+                add_filter( 'parse_query', [$this, 'listing_type_search_query'] );
+            }
 
-            add_action( 'wp_ajax_directorist_track_listing_views', [ $this, 'track_listing_view_count' ] );
-            add_action( 'wp_ajax_nopriv_directorist_track_listing_views', [ $this, 'track_listing_view_count' ] );
+            if ( defined( 'DOING_AJAX' ) && DOING_AJAX ) {
+                add_action( 'wp_ajax_directorist_track_listing_views', [ $this, 'track_listing_view_count' ] );
+                add_action( 'wp_ajax_nopriv_directorist_track_listing_views', [ $this, 'track_listing_view_count' ] );
+            }
 
             add_filter( 'the_title', [ $this, 'add_preview_prefix_in_title' ], 10, 2 );
+        }
+
+        public function __get( $name ) {
+            if ( 'add_listing' === $name ) {
+                return $this->get_add_listing();
+            }
+
+            if ( 'db' === $name ) {
+                return $this->get_db();
+            }
+
+            return null;
+        }
+
+        public function __set( $name, $value ) {
+            if ( 'add_listing' === $name || 'db' === $name ) {
+                $this->{$name} = $value;
+            }
+        }
+
+        public function __isset( $name ) {
+            if ( 'add_listing' === $name ) {
+                return $this->get_add_listing() instanceof ATBDP_Add_Listing;
+            }
+
+            if ( 'db' === $name ) {
+                return $this->get_db() instanceof ATBDP_Listing_DB;
+            }
+
+            return false;
+        }
+
+        public function get_add_listing() {
+            if ( ! $this->add_listing instanceof ATBDP_Add_Listing ) {
+                $this->add_listing = new ATBDP_Add_Listing( false );
+            }
+
+            return $this->add_listing;
+        }
+
+        public function get_db() {
+            if ( ! $this->db instanceof ATBDP_Listing_DB ) {
+                $this->db = new ATBDP_Listing_DB( false );
+            }
+
+            return $this->db;
+        }
+
+        protected function register_child_service_hooks() {
+            add_filter( 'ajax_query_attachments_args', [ $this, 'filter_current_user_attachments' ] );
+            add_action( 'template_redirect', [ $this, 'maybe_handle_listing_renewal' ] );
+            add_action( 'wp_ajax_add_listing_action', [ $this, 'submit_listing' ] );
+            add_action( 'wp_ajax_nopriv_add_listing_action', [ $this, 'submit_listing' ] );
+            add_action( 'wp_ajax_directorist_upload_listing_image', [ ATBDP_Add_Listing::class, 'upload_listing_image' ] );
+            add_action( 'wp_ajax_nopriv_directorist_upload_listing_image', [ ATBDP_Add_Listing::class, 'upload_listing_image' ] );
+            add_action( 'before_delete_post', [ $this, 'delete_listing_attachments' ] );
+        }
+
+        public function filter_current_user_attachments( array $query = [] ) {
+            return $this->get_add_listing()->show_current_user_attachments( $query );
+        }
+
+        public function maybe_handle_listing_renewal() {
+            if ( 'renew' !== get_query_var( 'atbdp_action' ) ) {
+                return;
+            }
+
+            $this->get_add_listing()->handle_listing_renewal();
+        }
+
+        public function submit_listing() {
+            $this->get_add_listing()->atbdp_submit_listing();
+        }
+
+        public function delete_listing_attachments( $post_id ) {
+            if ( ATBDP_POST_TYPE !== get_post_type( $post_id ) ) {
+                return;
+            }
+
+            $this->get_db()->atbdp_delete_attachment( $post_id );
         }
 
         public function add_preview_prefix_in_title( $title = '', $listing_id = 0 ) {

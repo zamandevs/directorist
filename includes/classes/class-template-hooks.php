@@ -17,8 +17,7 @@ class Directorist_Template_Hooks {
         add_filter( 'safecss_filter_attr_allow_css', [ $this, 'allow_style_attr' ], 10, 2 );
 
         // Dashboard ajax
-        $dashboard = Directorist_Listing_Dashboard::instance();
-        add_action( 'wp_ajax_directorist_dashboard_listing_tab', [ $dashboard, 'ajax_listing_tab' ] );
+        add_action( 'wp_ajax_directorist_dashboard_listing_tab', [ self::class, 'ajax_dashboard_listing_tab' ] );
 
         // All Categories
         add_action( 'atbdp_before_all_categories_loop',    [ '\Directorist\Directorist_Listing_Taxonomy', 'archive_type' ] );
@@ -59,6 +58,10 @@ class Directorist_Template_Hooks {
             self::$instance = new self;
         }
         return self::$instance;
+    }
+
+    public static function ajax_dashboard_listing_tab() {
+        Directorist_Listing_Dashboard::instance()->ajax_listing_tab();
     }
 
     public function add_style_attr( $args ) {

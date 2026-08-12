@@ -13,22 +13,33 @@ use Directorist\Utils\Template;
 class FeaturedListingCheckout {
     const CHECKOUT_TYPE = 'featured_listing';
 
-    public function __construct()  {
-        add_filter( 'directorist_checkout_types', [$this, 'add_checkout_type'] );
-        add_filter( 'directorist_order_data', [ $this, 'handle_order_data' ] );
-        add_action( 'directorist_after_order_update', [$this, 'handle_after_order_update'] );
-        add_filter( 'directorist_payment_receipt_order_items', [$this, 'handle_payment_receipt_order_items'], 10, 2 );
-        add_filter( 'directorist_checkout_validation', [$this, 'validate_checkout'], 10, 2 );
-        add_action( 'directorist_checkout_table', [$this, 'handle_checkout_table'], 10, 4 );
-        add_filter( 'directorist_checkout_subtotal', [$this, 'handle_checkout_subtotal'], 10, 3 );
-        add_action( 'directorist_checkout_create_order', [$this, 'handle_checkout_create_order'], 10, 3 );
-        add_action( 'directorist_before_order_update', [$this, 'handle_before_order_update'] );
-        add_filter( 'directorist_checkout_product_name', [$this, 'handle_checkout_product_name'], 10, 2 );
-        add_filter( 'directorist_ajax_listing_submission_response', [ $this, 'handle_listing_submission_response_data' ], 10, 2 );
-        add_filter( 'directorist_listing_update_args_after_preview', [ $this, 'handle_listing_status_after_preview' ], 10, 2 );
+    private static $hooks_registered = false;
+
+    public function __construct() {
+        self::register_hooks();
     }
 
-    public function handle_listing_submission_response_data( array $data, array $request ) {
+    public static function register_hooks() {
+        if ( self::$hooks_registered ) {
+            return;
+        }
+
+        self::$hooks_registered = true;
+        add_filter( 'directorist_checkout_types', [ self::class, 'add_checkout_type' ] );
+        add_filter( 'directorist_order_data', [ self::class, 'handle_order_data' ] );
+        add_action( 'directorist_after_order_update', [ self::class, 'handle_after_order_update' ] );
+        add_filter( 'directorist_payment_receipt_order_items', [ self::class, 'handle_payment_receipt_order_items' ], 10, 2 );
+        add_filter( 'directorist_checkout_validation', [ self::class, 'validate_checkout' ], 10, 2 );
+        add_action( 'directorist_checkout_table', [ self::class, 'handle_checkout_table' ], 10, 4 );
+        add_filter( 'directorist_checkout_subtotal', [ self::class, 'handle_checkout_subtotal' ], 10, 3 );
+        add_action( 'directorist_checkout_create_order', [ self::class, 'handle_checkout_create_order' ], 10, 3 );
+        add_action( 'directorist_before_order_update', [ self::class, 'handle_before_order_update' ] );
+        add_filter( 'directorist_checkout_product_name', [ self::class, 'handle_checkout_product_name' ], 10, 2 );
+        add_filter( 'directorist_ajax_listing_submission_response', [ self::class, 'handle_listing_submission_response_data' ], 10, 2 );
+        add_filter( 'directorist_listing_update_args_after_preview', [ self::class, 'handle_listing_status_after_preview' ], 10, 2 );
+    }
+
+    public static function handle_listing_submission_response_data( array $data, array $request ) {
         $featured_enabled = directorist_is_featured_listing_enabled( [ 'type' => 'featured_listing_checkout' ] );
         
         if ( ! $featured_enabled ) {
@@ -55,7 +66,7 @@ class FeaturedListingCheckout {
         return $data;
     }
 
-    public function handle_listing_status_after_preview( array $args ): array {
+    public static function handle_listing_status_after_preview( array $args ): array {
         $listing_id    = $args['ID'];
         $checkout_type = isset( $_GET['checkout_type'] ) ? sanitize_text_field( wp_unslash( $_GET['checkout_type'] ) ) : '';
 
@@ -72,12 +83,12 @@ class FeaturedListingCheckout {
         return $args;
     }
 
-    public function add_checkout_type( array $checkout_types ) {
+    public static function add_checkout_type( array $checkout_types ) {
         $checkout_types[] = self::CHECKOUT_TYPE;
         return $checkout_types;
     }
 
-    public function validate_checkout( string $checkout_type, WP_REST_Request $request ) {
+    public static function validate_checkout( string $checkout_type, WP_REST_Request $request ) {
         if ( $checkout_type !== self::CHECKOUT_TYPE ) {
             return;
         }
@@ -93,7 +104,7 @@ class FeaturedListingCheckout {
         }
     }
 
-    public function handle_checkout_table( string $checkout_type, float $total, float $subtotal, WP_REST_Request $request ) {
+    public static function handle_checkout_table( string $checkout_type, float $total, float $subtotal, WP_REST_Request $request ) {
         if ( $checkout_type !== self::CHECKOUT_TYPE ) {
             return;
         }
@@ -109,14 +120,14 @@ class FeaturedListingCheckout {
         );
     }
 
-    public function handle_checkout_subtotal( float $subtotal, string $checkout_type, WP_REST_Request $request ) {
+    public static function handle_checkout_subtotal( float $subtotal, string $checkout_type, WP_REST_Request $request ) {
         if ( $checkout_type !== self::CHECKOUT_TYPE ) {
             return $subtotal;
         }
         return get_directorist_option( 'featured_listing_price' );
     }
 
-    public function handle_checkout_create_order( OrderDTO $dto, string $checkout_type, WP_REST_Request $request ) {
+    public static function handle_checkout_create_order( OrderDTO $dto, string $checkout_type, WP_REST_Request $request ) {
         if ( $checkout_type !== self::CHECKOUT_TYPE ) {
             return;
         }
@@ -125,8 +136,8 @@ class FeaturedListingCheckout {
         $dto->set_listing_id( $request->get_param( 'listing_id' ) )->set_is_featured_listing( 1 )->set_ref_type( self::CHECKOUT_TYPE )->set_amount( $amount )->set_sub_total( $amount );
     }
 
-    public function handle_before_order_update( OrderDTO $dto ) {
-        if ( ! $this->is_featured_order( $dto ) ) {
+    public static function handle_before_order_update( OrderDTO $dto ) {
+        if ( ! self::is_featured_order( $dto ) ) {
             return;
         }
 
@@ -142,8 +153,8 @@ class FeaturedListingCheckout {
         }
     }
 
-    public function handle_after_order_update( OrderDTO $dto ) {
-        if ( ! $this->is_featured_order( $dto ) ) {
+    public static function handle_after_order_update( OrderDTO $dto ) {
+        if ( ! self::is_featured_order( $dto ) ) {
             return;
         }
 
@@ -165,8 +176,8 @@ class FeaturedListingCheckout {
         }
     }
 
-    public function handle_payment_receipt_order_items( array $order_items, OrderDTO $order ) {
-        if ( ! $this->is_featured_order( $order ) ) {
+    public static function handle_payment_receipt_order_items( array $order_items, OrderDTO $order ) {
+        if ( ! self::is_featured_order( $order ) ) {
             return $order_items;
         }
 
@@ -185,7 +196,7 @@ class FeaturedListingCheckout {
         return $order_items;
     }
 
-    public function handle_order_data( $order ) {
+    public static function handle_order_data( $order ) {
         if ( $order->ref_type !== self::CHECKOUT_TYPE ) {
             return $order;
         }
@@ -194,8 +205,8 @@ class FeaturedListingCheckout {
         return $order;
     }
 
-    public function handle_checkout_product_name( string $product_name, OrderDTO $dto ) {
-        if ( ! $this->is_featured_order( $dto ) ) {
+    public static function handle_checkout_product_name( string $product_name, OrderDTO $dto ) {
+        if ( ! self::is_featured_order( $dto ) ) {
             return $product_name;
         }
 
@@ -205,7 +216,7 @@ class FeaturedListingCheckout {
         return sprintf( __( 'Featured Listing: %s', 'directorist' ), $listing->post_title );
     }
 
-    public function is_featured_order( OrderDTO $order_dto ): bool {
+    public static function is_featured_order( OrderDTO $order_dto ): bool {
         if ( ! $order_dto->is_initialized( 'ref_type' ) || ! $order_dto->is_initialized( 'ref' ) || ! $order_dto->is_initialized( 'listing_id' ) ) {
             return false;
         }

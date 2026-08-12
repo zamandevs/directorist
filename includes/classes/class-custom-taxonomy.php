@@ -8,32 +8,34 @@ if ( ! class_exists( 'ATBDP_Custom_Taxonomy' ) ) :
 
             add_action( 'init', [ $this, 'add_custom_taxonomy' ], 15 );
 
-            // Category actions.
-            add_filter( 'manage_edit-' . ATBDP_CATEGORY . '_columns', [ $this, 'register_category_columns' ] );
-            add_filter( 'manage_' . ATBDP_CATEGORY . '_custom_column', [ $this, 'add_category_column_data' ], 15, 3 );
-            add_action( ATBDP_CATEGORY . '_add_form_fields', [ $this, 'add_category_form_fields' ] );
-            add_action( 'created_' . ATBDP_CATEGORY, [ $this, 'save_add_category_form_fields' ] );
-            add_action( ATBDP_CATEGORY . '_edit_form_fields', [ $this, 'edit_category_form_fields' ] );
-            add_action( 'edited_' . ATBDP_CATEGORY, [ $this, 'save_edit_category_form_fields' ] );
-            add_filter( ATBDP_CATEGORY . '_row_actions', [ $this, 'edit_taxonomy_view_link' ], 10, 2 );
+            if ( is_admin() ) {
+                // Category actions.
+                add_filter( 'manage_edit-' . ATBDP_CATEGORY . '_columns', [ $this, 'register_category_columns' ] );
+                add_filter( 'manage_' . ATBDP_CATEGORY . '_custom_column', [ $this, 'add_category_column_data' ], 15, 3 );
+                add_action( ATBDP_CATEGORY . '_add_form_fields', [ $this, 'add_category_form_fields' ] );
+                add_action( 'created_' . ATBDP_CATEGORY, [ $this, 'save_add_category_form_fields' ] );
+                add_action( ATBDP_CATEGORY . '_edit_form_fields', [ $this, 'edit_category_form_fields' ] );
+                add_action( 'edited_' . ATBDP_CATEGORY, [ $this, 'save_edit_category_form_fields' ] );
+                add_filter( ATBDP_CATEGORY . '_row_actions', [ $this, 'edit_taxonomy_view_link' ], 10, 2 );
 
-            // Location actions.
-            add_filter( 'manage_edit-' . ATBDP_LOCATION . '_columns', [ $this, 'register_location_columns' ] );
-            add_filter( 'manage_' . ATBDP_LOCATION . '_custom_column', [ $this, 'add_location_column_data' ], 15, 3 );
-            add_action( ATBDP_LOCATION . '_add_form_fields', [ $this, 'add_location_form_fields' ] );
-            add_action( 'created_' . ATBDP_LOCATION, [ $this, 'save_add_location_form_fields' ] );
-            add_action( ATBDP_LOCATION . '_edit_form_fields', [ $this, 'edit_location_form_fields' ] );
-            add_action( 'edited_' . ATBDP_LOCATION, [ $this, 'save_edit_location_form_fields' ] );
-            add_filter( ATBDP_LOCATION . '_row_actions', [ $this, 'edit_taxonomy_view_link' ], 10, 2 );
+                // Location actions.
+                add_filter( 'manage_edit-' . ATBDP_LOCATION . '_columns', [ $this, 'register_location_columns' ] );
+                add_filter( 'manage_' . ATBDP_LOCATION . '_custom_column', [ $this, 'add_location_column_data' ], 15, 3 );
+                add_action( ATBDP_LOCATION . '_add_form_fields', [ $this, 'add_location_form_fields' ] );
+                add_action( 'created_' . ATBDP_LOCATION, [ $this, 'save_add_location_form_fields' ] );
+                add_action( ATBDP_LOCATION . '_edit_form_fields', [ $this, 'edit_location_form_fields' ] );
+                add_action( 'edited_' . ATBDP_LOCATION, [ $this, 'save_edit_location_form_fields' ] );
+                add_filter( ATBDP_LOCATION . '_row_actions', [ $this, 'edit_taxonomy_view_link' ], 10, 2 );
 
-            // Bulk actions
-            add_filter( 'bulk_actions-edit-' . ATBDP_CATEGORY, [ $this, 'register_bulk_actions' ] );
-            add_filter( 'handle_bulk_actions-edit-' . ATBDP_CATEGORY, [ $this, 'handle_bulk_actions' ], 10, 3 );
-            add_filter( 'bulk_actions-edit-' . ATBDP_LOCATION, [ $this, 'register_bulk_actions' ] );
-            add_filter( 'handle_bulk_actions-edit-' . ATBDP_LOCATION, [ $this, 'handle_bulk_actions' ], 10, 3 );
+                // Bulk actions
+                add_filter( 'bulk_actions-edit-' . ATBDP_CATEGORY, [ $this, 'register_bulk_actions' ] );
+                add_filter( 'handle_bulk_actions-edit-' . ATBDP_CATEGORY, [ $this, 'handle_bulk_actions' ], 10, 3 );
+                add_filter( 'bulk_actions-edit-' . ATBDP_LOCATION, [ $this, 'register_bulk_actions' ] );
+                add_filter( 'handle_bulk_actions-edit-' . ATBDP_LOCATION, [ $this, 'handle_bulk_actions' ], 10, 3 );
 
-            // Other actions.
-            add_filter( 'term_updated_messages', [ $this, 'add_term_updated_messages' ] );
+                // Other actions.
+                add_filter( 'term_updated_messages', [ $this, 'add_term_updated_messages' ] );
+            }
 
             add_filter( 'term_link', [ $this, 'update_term_link' ], 10, 3 );
             // add_action( 'template_redirect', [ $this, 'atbdp_template_redirect' ] );

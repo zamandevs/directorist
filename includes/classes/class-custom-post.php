@@ -11,32 +11,34 @@ if ( ! class_exists( 'ATBDP_Custom_Post' ) ) :
             // Add the listing post type and taxonomies
             add_action( 'init', [ $this, 'register_new_post_types' ], 5 );
 
-            // add new columns for ATBDP_SHORT_CODE_POST_TYPE
-            add_filter( 'manage_' . ATBDP_POST_TYPE . '_posts_columns', [ $this, 'add_new_listing_columns' ] );
-            add_action( 'manage_' . ATBDP_POST_TYPE . '_posts_custom_column', [ $this, 'manage_listing_columns' ], 10, 2 );
-            /*make column sortable*/
-            add_filter( 'manage_edit-' . ATBDP_POST_TYPE . '_sortable_columns', [ $this, 'make_sortable_column' ], 10, 1 );
-            add_filter( 'post_row_actions', [ $this, 'add_listing_id_row' ], 10, 2 );
+            if ( is_admin() ) {
+                // add new columns for ATBDP_SHORT_CODE_POST_TYPE
+                add_filter( 'manage_' . ATBDP_POST_TYPE . '_posts_columns', [ $this, 'add_new_listing_columns' ] );
+                add_action( 'manage_' . ATBDP_POST_TYPE . '_posts_custom_column', [ $this, 'manage_listing_columns' ], 10, 2 );
+                /*make column sortable*/
+                add_filter( 'manage_edit-' . ATBDP_POST_TYPE . '_sortable_columns', [ $this, 'make_sortable_column' ], 10, 1 );
+                add_filter( 'post_row_actions', [ $this, 'add_listing_id_row' ], 10, 2 );
 
-            add_filter( 'enter_title_here', [ $this, 'change_title_text' ] );
-            add_filter( 'post_row_actions', [ $this, 'add_row_actions_for_quick_view' ], 10, 2 );
-            add_filter( 'load-edit.php', [ $this, 'work_row_actions_for_quick_view' ], 10, 2 );
+                add_filter( 'enter_title_here', [ $this, 'change_title_text' ] );
+                add_filter( 'post_row_actions', [ $this, 'add_row_actions_for_quick_view' ], 10, 2 );
+                add_filter( 'load-edit.php', [ $this, 'work_row_actions_for_quick_view' ], 10, 2 );
 
-            // bulk directory type assign
-            add_action( 'quick_edit_custom_box', [ __CLASS__, 'on_quick_or_bulk_edit_custom_box' ], 10, 2 );
-            add_action( 'save_post', [ __CLASS__, 'on_save_post' ] );
+                // bulk directory type assign
+                add_action( 'quick_edit_custom_box', [ __CLASS__, 'on_quick_or_bulk_edit_custom_box' ], 10, 2 );
+                add_action( 'save_post', [ __CLASS__, 'on_save_post' ] );
 
-            add_action( 'bulk_edit_custom_box', [ __CLASS__, 'on_quick_or_bulk_edit_custom_box' ], 10, 2 );
-            add_action( 'bulk_edit_posts', [ __CLASS__, 'on_bulk_edit_posts' ], 10, 2 );
+                add_action( 'bulk_edit_custom_box', [ __CLASS__, 'on_quick_or_bulk_edit_custom_box' ], 10, 2 );
+                add_action( 'bulk_edit_posts', [ __CLASS__, 'on_bulk_edit_posts' ], 10, 2 );
+
+                add_action( 'admin_footer', [ $this, 'quick_edit_scripts' ] );
+                add_action( 'admin_footer', [ $this, 'render_reject_modal' ] );
+            }
 
             // Customize listing slug
             if ( get_directorist_option( 'single_listing_slug_with_directory_type', false ) ) {
                 add_filter( 'post_type_link', [ $this, 'customize_listing_slug' ], 20, 2 );
                 // add_filter( 'post_link', array( $this, 'customize_listing_slug' ), 20, 2 );
             }
-
-            add_action( 'admin_footer', [ $this, 'quick_edit_scripts' ] );
-            add_action( 'admin_footer', [ $this, 'render_reject_modal' ] );
 
             add_action( 'init', [ $this, 'register_post_status' ] );
         }

@@ -15,10 +15,6 @@ class Multi_Directory_Manager {
 
     public static $migration  = null;
 
-    public function __construct() {
-        self::$migration = new Multi_Directory_Migration( [ 'multi_directory_manager' => $this ] );
-    }
-
     // run
     public function run() {
         add_action( 'init', [$this, 'register_directory_taxonomy'] );
@@ -365,7 +361,7 @@ class Multi_Directory_Manager {
 
         if ( $need_migration ) {
             $this->prepare_settings();
-            self::$migration->migrate();
+            $this->get_migration()->migrate();
             return;
         }
 
@@ -382,6 +378,14 @@ class Multi_Directory_Manager {
         $directory_types = directorist_get_directories();
 
         return ( ! is_wp_error( $directory_types ) && ! empty( $directory_types ) ) ? true : false;
+    }
+
+    protected function get_migration() {
+        if ( ! self::$migration instanceof Multi_Directory_Migration ) {
+            self::$migration = new Multi_Directory_Migration( [ 'multi_directory_manager' => $this ] );
+        }
+
+        return self::$migration;
     }
 
     // has_old_listings_data
@@ -445,7 +449,7 @@ class Multi_Directory_Manager {
         }
 
         $this->prepare_settings();
-        $migration_status = self::$migration->migrate( $args );
+        $migration_status = $this->get_migration()->migrate( $args );
 
         $status = [
             'success' => $migration_status['success'],
@@ -838,7 +842,7 @@ class Multi_Directory_Manager {
         $test_migration = apply_filters( 'atbdp_test_migration', false );
 
         if ( $test_migration ) {
-            $all_term_meta = self::$migration->get_fields_data();
+            $all_term_meta = $this->get_migration()->get_fields_data();
         }
 
         if ( ! is_array( $all_term_meta ) ) {

@@ -23,6 +23,8 @@ use Directorist\Utils\Mime;
  * @access   public
  */
 class ATBDP_Checkout {
+    private static $hooks_registered = false;
+
     /**
      * @var string
      */
@@ -34,7 +36,28 @@ class ATBDP_Checkout {
     public $nonce_action = 'checkout_action';
 
     public function __construct() {
-        add_action( 'init', [$this, 'buffer_to_fix_redirection'] );
+        self::register_hooks();
+    }
+
+    public static function register_hooks() {
+        if ( self::$hooks_registered ) {
+            return;
+        }
+
+        self::$hooks_registered = true;
+        add_action( 'init', [ self::class, 'buffer_to_fix_redirection' ] );
+    }
+
+    public static function payment_receipt_shortcode() {
+        return ( new self() )->payment_receipt();
+    }
+
+    public static function checkout_shortcode() {
+        return ( new self() )->checkout();
+    }
+
+    public static function transaction_failure_shortcode() {
+        return ( new self() )->transaction_failure();
     }
 
     /**
@@ -442,9 +465,9 @@ class ATBDP_Checkout {
     /**
      * It starts output buffering if the checkout form has been submitted in order to fix redirection problem.
      */
-    public function buffer_to_fix_redirection() {
+    public static function buffer_to_fix_redirection() {
         // if the checkout form is submitted, then init buffering to solve redirection problem because of header already sent
-        if ( isset( $_SERVER['REQUEST_METHOD'] ) && ( 'POST' == $_SERVER['REQUEST_METHOD'] ) && ATBDP()->helper->verify_nonce( $this->nonce, $this->nonce_action ) ) {
+        if ( isset( $_SERVER['REQUEST_METHOD'] ) && ( 'POST' == $_SERVER['REQUEST_METHOD'] ) && ATBDP()->helper->verify_nonce( 'checkout_nonce', 'checkout_action' ) ) {
             ob_start();
         }
     }

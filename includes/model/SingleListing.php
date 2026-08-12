@@ -37,6 +37,30 @@ class Directorist_Single_Listing {
 
     public $price;
 
+    private $hydrated_meta = [];
+
+    private $hydrated_terms = [];
+
+    private $hydrated_term_lists = [];
+
+    private $hydrated_options = [];
+
+    private $hydrated_type_options = [];
+
+    private $field_states = [];
+
+    private $computed = [];
+
+    private $contents_prepared = false;
+
+    private $contents = '';
+
+    private $single_page_content_prepared = false;
+
+    private $single_page_content = '';
+
+    private $related_listings = [];
+
     private function __construct( $listing_id = 0 ) {
         if ( $listing_id && is_int( $listing_id ) ) {
             $this->id = (int) $listing_id;
@@ -69,10 +93,77 @@ class Directorist_Single_Listing {
         $this->type                 = (int) $this->get_directory_type_id();
         $this->header_data          = directorist_single_listing_header( $this->type, [ 'listing_id' => $this->id, 'listing_owner_id' => $this->author_id, 'directory_type_id' => $this->type ] );
         $this->content_data         = $this->build_content_data();
-        $this->fm_plan              = get_post_meta( $this->id, '_fm_plans', true );
-        $this->price_range          = get_post_meta( $this->id, '_price_range', true );
-        $this->atbd_listing_pricing = get_post_meta( $this->id, '_atbd_listing_pricing', true );
-        $this->price                = get_post_meta( $this->id, '_price', true );
+        $this->fm_plan              = $this->get_hydrated_meta( '_fm_plans' );
+        $this->price_range          = $this->get_hydrated_meta( '_price_range' );
+        $this->atbd_listing_pricing = $this->get_hydrated_meta( '_atbd_listing_pricing' );
+        $this->price                = $this->get_hydrated_meta( '_price' );
+    }
+
+    public function get_hydrated_meta( $meta_key ) {
+        $meta_key = (string) $meta_key;
+
+        if ( ! array_key_exists( $meta_key, $this->hydrated_meta ) ) {
+            $this->hydrated_meta[ $meta_key ] = get_post_meta( $this->id, $meta_key, true );
+        }
+
+        return $this->hydrated_meta[ $meta_key ];
+    }
+
+    public function get_hydrated_terms( $taxonomy ) {
+        $taxonomy = (string) $taxonomy;
+
+        if ( ! array_key_exists( $taxonomy, $this->hydrated_terms ) ) {
+            $this->hydrated_terms[ $taxonomy ] = get_the_terms( $this->id, $taxonomy );
+        }
+
+        return $this->hydrated_terms[ $taxonomy ];
+    }
+
+    public function get_hydrated_term_list( $taxonomy ) {
+        $taxonomy = (string) $taxonomy;
+
+        if ( ! array_key_exists( $taxonomy, $this->hydrated_term_lists ) ) {
+            $this->hydrated_term_lists[ $taxonomy ] = get_the_term_list( $this->id, $taxonomy, '', ', ' );
+        }
+
+        return $this->hydrated_term_lists[ $taxonomy ];
+    }
+
+    public function get_hydrated_option( $name, $default = false, $force_default = false ) {
+        $cache_key = md5( maybe_serialize( [ $name, $default, $force_default ] ) );
+
+        if ( ! array_key_exists( $cache_key, $this->hydrated_options ) ) {
+            $this->hydrated_options[ $cache_key ] = get_directorist_option( $name, $default, $force_default );
+        }
+
+        return $this->hydrated_options[ $cache_key ];
+    }
+
+    public function get_hydrated_type_option( $name, $default = '' ) {
+        $cache_key = md5( maybe_serialize( [ $this->type, $name, $default ] ) );
+
+        if ( ! array_key_exists( $cache_key, $this->hydrated_type_options ) ) {
+            $this->hydrated_type_options[ $cache_key ] = get_directorist_type_option( $this->type, $name, $default );
+        }
+
+        return $this->hydrated_type_options[ $cache_key ];
+    }
+
+    public function reset_hydrated_data() {
+        $this->hydrated_meta                = [];
+        $this->hydrated_terms               = [];
+        $this->hydrated_term_lists          = [];
+        $this->hydrated_options             = [];
+        $this->hydrated_type_options        = [];
+        $this->field_states                 = [];
+        $this->computed                     = [];
+        $this->contents_prepared             = false;
+        $this->contents                      = '';
+        $this->single_page_content_prepared = false;
+        $this->single_page_content          = '';
+        $this->related_listings             = [];
+
+        $this->prepare_data();
     }
 
     public function build_content_data() {
@@ -190,44 +281,10 @@ class Directorist_Single_Listing {
                 break;
             }
 
-            $value = $this->get_field_value( $field );
-
-            if ( $value ) {
+            $state = $this->get_field_state( $field );
+            if ( $state['section_has_value'] ) {
                 $has_contents = true;
                 break;
-            }
-
-            if ( 'tag' === $field['widget_name'] ) {
-                $tags = get_the_terms( $this->id, ATBDP_TAGS );
-                if ( $tags ) {
-                    $has_contents = true;
-                    break;
-                }
-            }
-
-            if ( 'image_upload' === $field['widget_name'] ) {
-                if ( $this->get_contents() ) {
-                    $has_contents = true;
-                    break;
-                }
-            }
-
-            if ( 'description' === $field['widget_name'] ) {
-                if ( $this->get_contents() ) {
-                    $has_contents = true;
-                    break;
-                }
-            }
-
-            if ( 'map' === $field['widget_name'] ) {
-                $address = get_post_meta( $this->id, '_address', true );
-                $manual_lat = get_post_meta( $this->id, '_manual_lat', true );
-                $manual_lng = get_post_meta( $this->id, '_manual_lng', true );
-
-                if ( $address || ( $manual_lat && $manual_lng ) ) {
-                    $has_contents = true;
-                    break;
-                }
             }
         }
 
@@ -243,8 +300,6 @@ class Directorist_Single_Listing {
     }
 
     public function get_field_value( $data = [] ) {
-        $post_id = $this->id;
-
         $value = '';
 
         if ( ! is_array( $data ) ) {
@@ -260,44 +315,75 @@ class Directorist_Single_Listing {
         }
 
         if ( ! empty( $data['field_key'] ) ) {
-            $value = get_post_meta( $post_id, '_' . $data['field_key'], true );
+            $value = $this->get_hydrated_meta( '_' . $data['field_key'] );
 
             if ( empty( $value ) ) {
-                $value = get_post_meta( $post_id, $data['field_key'], true ); //@kowsar @todo - remove double getmeta later
+                $value = $this->get_hydrated_meta( $data['field_key'] ); //@kowsar @todo - remove double getmeta later
             }
         }
 
         return apply_filters( 'directorist_single_listing_widget_value', $value, $data );
     }
 
-    public function field_template( $data ) {
-        $value = '';
-
-        if ( 'tag' === $data['widget_name'] ) {
-            $tags = get_the_terms( $this->id, ATBDP_TAGS );
-            if ( $tags ) {
-                $value = true;
-            }
-        } elseif ( 'map' === $data['widget_name'] ) {
-            $manual_lat = get_post_meta( $this->id, '_manual_lat', true );
-            $manual_lng = get_post_meta( $this->id, '_manual_lng', true );
-            $hide_map   = get_post_meta( $this->id, '_hide_map', true );
-            if ( ( $manual_lat && $manual_lng ) && ! $hide_map ) {
-                $value = true;
-            }
-        } elseif ( 'image_upload' === $data['widget_name'] ) {
-            $listing_img    =  directorist_get_listing_gallery_images( $this->id );
-            $preview_img    = directorist_get_listing_preview_image( $this->id );
-            if ( $listing_img || $preview_img ) {
-                $value = true;
-            }
-        } elseif ( 'description' === $data['widget_name'] ) {
-            if ( $this->get_contents() ) {
-                $value = true;
-            }
-        } else {
-            $value = $this->get_field_value( $data );
+    public function get_field_state( $data = [] ) {
+        if ( ! is_array( $data ) ) {
+            return [
+                'value'             => '',
+                'section_has_value' => false,
+                'address'           => '',
+                'manual_lat'        => '',
+                'manual_lng'        => '',
+            ];
         }
+
+        $cache_key = md5( maybe_serialize( $data ) );
+        if ( isset( $this->field_states[ $cache_key ] ) ) {
+            return $this->field_states[ $cache_key ];
+        }
+
+        $widget_name      = $data['widget_name'] ?? '';
+        $base_value       = $this->get_field_value( $data );
+        $value            = $base_value;
+        $section_has_value = (bool) $base_value;
+        $address          = $this->get_hydrated_meta( '_address' );
+        $manual_lat       = '';
+        $manual_lng       = '';
+
+        if ( 'tag' === $widget_name ) {
+            $terms = $this->get_hydrated_terms( ATBDP_TAGS );
+            $value = $terms ? true : false;
+            $section_has_value = $section_has_value || (bool) $terms;
+        } elseif ( 'map' === $widget_name ) {
+            $manual_lat = $this->get_hydrated_meta( '_manual_lat' );
+            $manual_lng = $this->get_hydrated_meta( '_manual_lng' );
+            $hide_map   = $this->get_hydrated_meta( '_hide_map' );
+            $value      = ( $manual_lat && $manual_lng ) && ! $hide_map;
+            $section_has_value = $section_has_value || $address || ( $manual_lat && $manual_lng );
+        } elseif ( 'image_upload' === $widget_name ) {
+            $has_images = $this->get_hydrated_gallery_images() || $this->get_hydrated_preview_image();
+            $value      = (bool) $has_images;
+            $section_has_value = $section_has_value || (bool) $this->get_contents();
+        } elseif ( 'description' === $widget_name ) {
+            $value = $this->get_contents() ? true : false;
+            $section_has_value = $section_has_value || $value;
+        }
+
+        $state = [
+            'value'             => $value,
+            'section_has_value' => (bool) $section_has_value,
+            'address'           => $address,
+            'manual_lat'        => $manual_lat,
+            'manual_lng'        => $manual_lng,
+        ];
+
+        $this->field_states[ $cache_key ] = apply_filters( 'directorist_single_listing_field_state', $state, $data, $this );
+
+        return $this->field_states[ $cache_key ];
+    }
+
+    public function field_template( $data ) {
+        $state = $this->get_field_state( $data );
+        $value = $state['value'];
 
         $group = ! empty( $data['widget_group'] ) ? $data['widget_group'] : '';
 
@@ -313,11 +399,11 @@ class Directorist_Single_Listing {
             'data'                  => $data,
             'value'                 => $value,
             'icon'                  => ! empty( $data['icon'] ) ? $data['icon'] : '',
-            'display_address_map'   => get_directorist_option( 'display_address_map', 1 ),
-            'display_direction_map' => get_directorist_option( 'display_direction_map', 1 ),
-            'address'               => get_post_meta( $this->id, '_address', true ),
-            'manual_lat'            => ! empty( $manual_lat ) ? $manual_lat : '',
-            'manual_lng'            => ! empty( $manual_lng ) ? $manual_lng : '',
+            'display_address_map'   => $this->get_hydrated_option( 'display_address_map', 1 ),
+            'display_direction_map' => $this->get_hydrated_option( 'display_direction_map', 1 ),
+            'address'               => $state['address'],
+            'manual_lat'            => $state['manual_lat'],
+            'manual_lng'            => $state['manual_lng'],
         );
 
         if ( $this->is_custom_field( $data ) ) {
@@ -373,7 +459,23 @@ class Directorist_Single_Listing {
     }
 
     public function get_socials() {
-        return get_post_meta( $this->id, '_social', true );
+        return $this->get_hydrated_meta( '_social' );
+    }
+
+    public function get_hydrated_gallery_images() {
+        if ( ! array_key_exists( 'gallery_images', $this->computed ) ) {
+            $this->computed['gallery_images'] = directorist_get_listing_gallery_images( $this->id );
+        }
+
+        return $this->computed['gallery_images'];
+    }
+
+    public function get_hydrated_preview_image() {
+        if ( ! array_key_exists( 'preview_image', $this->computed ) ) {
+            $this->computed['preview_image'] = directorist_get_listing_preview_image( $this->id );
+        }
+
+        return $this->computed['preview_image'];
     }
 
     public function section_id( $id ) {
@@ -393,25 +495,19 @@ class Directorist_Single_Listing {
     }
 
     public function get_cat_list() {
-        // @cache @kowsar
-        $cat_list = get_the_term_list( $this->id, ATBDP_CATEGORY, '', ', ' );
-        return $cat_list;
+        return $this->get_hydrated_term_list( ATBDP_CATEGORY );
     }
 
     public function get_location_list() {
-        // @cache @kowsar
-        $loc_list = get_the_term_list( $this->id, ATBDP_LOCATION, '', ', ' );
-        return $loc_list;
+        return $this->get_hydrated_term_list( ATBDP_LOCATION );
     }
 
     public function get_tags() {
-        // @cache @kowsar
-        $tags = get_the_terms( $this->id, ATBDP_TAGS );
-        return $tags;
+        return $this->get_hydrated_terms( ATBDP_TAGS );
     }
 
     public function single_page_enabled() {
-        return get_directorist_type_option( $this->type, 'enable_single_listing_page', false );
+        return $this->get_hydrated_type_option( 'enable_single_listing_page', false );
     }
 
     /**
@@ -420,7 +516,18 @@ class Directorist_Single_Listing {
      * @return string Single Listing content html.
      */
     public function single_page_content() {
-        $page_id = (int) get_directorist_type_option( $this->type, 'single_listing_page' );
+        if ( $this->single_page_content_prepared ) {
+            return $this->single_page_content;
+        }
+
+        $this->single_page_content_prepared = true;
+        $this->single_page_content          = $this->build_single_page_content();
+
+        return $this->single_page_content;
+    }
+
+    private function build_single_page_content() {
+        $page_id = (int) $this->get_hydrated_type_option( 'single_listing_page' );
 
         // Bail if custom single listing page is disabled
         if ( ! $page_id ) {
@@ -429,7 +536,7 @@ class Directorist_Single_Listing {
 
         // Bail if selected custom single listing page is not really a page
         $page = get_post( $page_id );
-        if ( $page->post_type !== 'page' ) {
+        if ( ! $page || $page->post_type !== 'page' ) {
             return '';
         }
 
@@ -616,11 +723,16 @@ class Directorist_Single_Listing {
     }
 
     public function get_slider_data( $data = null ) {
+        $cache_key = 'slider_data:' . md5( (string) maybe_serialize( $data ) );
+        if ( array_key_exists( $cache_key, $this->computed ) ) {
+            return $this->computed[ $cache_key ];
+        }
 
-        $show_slider = get_directorist_option( 'dsiplay_slider_single_page', true );
+        $show_slider = $this->get_hydrated_option( 'dsiplay_slider_single_page', true );
 
         if ( ! $show_slider ) {
-            return;
+            $this->computed[ $cache_key ] = null;
+            return $this->computed[ $cache_key ];
         }
 
         $listing_id    = $this->id;
@@ -632,13 +744,13 @@ class Directorist_Single_Listing {
         $image_size = apply_filters( 'directorist_single_listing_slider_image_size', 'large' );
 
         // Get the preview images
-        $preview_img_id   = directorist_get_listing_preview_image( $listing_id );
+        $preview_img_id   = $this->get_hydrated_preview_image();
         $preview_img_link = ! empty( $preview_img_id ) ? atbdp_get_image_source( $preview_img_id, $image_size ) : '';
         $preview_img_alt  = get_post_meta( $preview_img_id, '_wp_attachment_image_alt', true );
         $preview_img_alt  = ( ! empty( $preview_img_alt ) ) ? $preview_img_alt : get_the_title( $preview_img_id );
 
         // Get the gallery images
-        $listing_img  = directorist_get_listing_gallery_images( $listing_id );
+        $listing_img  = $this->get_hydrated_gallery_images();
         $listing_imgs = ! empty( $listing_img ) ? ( ! is_array( $listing_img ) ? [ $listing_img ] : $listing_img ) : [];
         $image_links  = []; // define a link placeholder variable
 
@@ -653,19 +765,19 @@ class Directorist_Single_Listing {
         }
 
         // Get the options
-        $background_type = get_directorist_option( 'single_slider_background_type', 'custom-color' );
-        $height          = (int) get_directorist_option( 'gallery_crop_height', 670 );
-        $width           = (int) get_directorist_option( 'gallery_crop_width', 750 );
+        $background_type = $this->get_hydrated_option( 'single_slider_background_type', 'custom-color' );
+        $height          = (int) $this->get_hydrated_option( 'gallery_crop_height', 670 );
+        $width           = (int) $this->get_hydrated_option( 'gallery_crop_width', 750 );
 
         // Set the options
         $data = [
             'images'             => [],
             'alt'                => $listing_title,
-            'background-size'    => get_directorist_option( 'single_slider_image_size', 'cover' ),
+            'background-size'    => $this->get_hydrated_option( 'single_slider_image_size', 'cover' ),
             'blur-background'    => ( 'blur' === $background_type ) ? '1' : '0',
             'width'              => empty( $width ) ? 740 : $width,
             'height'             => empty( $height ) ? 580 : $height,
-            'background-color'   => get_directorist_option( 'single_slider_background_color', 'gainsboro' ),
+            'background-color'   => $this->get_hydrated_option( 'single_slider_background_color', 'gainsboro' ),
             'thumbnail-bg-color' => '',
             'show-thumbnails'    => ! empty( $data['footer_thumbnail'] ) ? '1' : '0',
             'gallery'            => true,
@@ -696,7 +808,9 @@ class Directorist_Single_Listing {
 
         $data['padding-top'] = ( $data['height'] / $data['width'] ) * 100;
 
-        return $data;
+        $this->computed[ $cache_key ] = $data;
+
+        return $this->computed[ $cache_key ];
     }
 
     public function slider_template() {
@@ -892,6 +1006,11 @@ class Directorist_Single_Listing {
     }
 
     public function author_info( $arg ) {
+        $cache_key = 'author_info:' . $arg;
+        if ( array_key_exists( $cache_key, $this->computed ) ) {
+            return $this->computed[ $cache_key ];
+        }
+
         $author_id = $this->author_id;
         $result = '';
 
@@ -938,12 +1057,14 @@ class Directorist_Single_Listing {
             break;
         }
 
-        return $result;
+        $this->computed[ $cache_key ] = $result;
+
+        return $this->computed[ $cache_key ];
     }
 
     public function price_html() {
         $id            = $this->id;
-        $allow_decimal = get_directorist_option( 'allow_decimal', 1 );
+        $allow_decimal = $this->get_hydrated_option( 'allow_decimal', 1 );
         $c_position    = directorist_get_currency_position();
         $currency      = directorist_get_currency();
         $symbol        = atbdp_currency_symbol( $currency );
@@ -961,6 +1082,10 @@ class Directorist_Single_Listing {
     }
 
     public function get_review_section_data() {
+        if ( array_key_exists( 'review_section_data', $this->computed ) ) {
+            return $this->computed['review_section_data'];
+        }
+
         $data = [];
 
         foreach ( $this->content_data as $section_data ) {
@@ -975,15 +1100,25 @@ class Directorist_Single_Listing {
             }
         }
 
-        return $data;
+        $this->computed['review_section_data'] = $data;
+
+        return $this->computed['review_section_data'];
     }
 
     public function get_review_count() {
-        return directorist_get_listing_review_count( $this->id );
+        if ( ! array_key_exists( 'review_count', $this->computed ) ) {
+            $this->computed['review_count'] = directorist_get_listing_review_count( $this->id );
+        }
+
+        return $this->computed['review_count'];
     }
 
     public function get_rating_count() {
-        return directorist_get_listing_rating( $this->id );
+        if ( ! array_key_exists( 'rating', $this->computed ) ) {
+            $this->computed['rating'] = directorist_get_listing_rating( $this->id );
+        }
+
+        return $this->computed['rating'];
     }
 
     public function submit_link() {
@@ -1093,12 +1228,12 @@ class Directorist_Single_Listing {
         }
 
         if ( get_post_status( get_the_ID() ) === 'publish' ) {
-            $message = get_directorist_option(
+            $message = $this->get_hydrated_option(
                 'publish_confirmation_msg',
                 __( 'Congratulations! Your listing has been approved/published. Now it is publicly available.', 'directorist' )
             );
         } else {
-            $message = get_directorist_option(
+            $message = $this->get_hydrated_option(
                 'pending_confirmation_msg',
                 __( 'Thank you for your submission. Your listing is being reviewed and it may take up to 24 hours to complete the review.', 'directorist' )
             );
@@ -1192,11 +1327,11 @@ class Directorist_Single_Listing {
     }
 
     public function guest_review_enabled() {
-        return get_directorist_option( 'guest_review', 0 );
+        return $this->get_hydrated_option( 'guest_review', 0 );
     }
 
     public function owner_review_enabled() {
-        return get_directorist_option( 'enable_owner_review', 1 );
+        return $this->get_hydrated_option( 'enable_owner_review', 1 );
     }
 
     public function current_review() {
@@ -1212,7 +1347,7 @@ class Directorist_Single_Listing {
     }
 
     public function review_count() {
-        return directorist_get_listing_review_count( $this->id );
+        return $this->get_review_count();
     }
 
     public function review_count_text() {
@@ -1221,7 +1356,7 @@ class Directorist_Single_Listing {
     }
 
     public function review_approve_immediately() {
-        return get_directorist_option( 'approve_immediately', 1 );
+        return $this->get_hydrated_option( 'approve_immediately', 1 );
     }
 
     /**
@@ -1235,30 +1370,37 @@ class Directorist_Single_Listing {
     }
 
     public function get_tagline() {
-        return get_post_meta( $this->id, '_tagline', true );
+        return $this->get_hydrated_meta( '_tagline' );
     }
 
     public function contact_owner_email() {
-        $email = get_post_meta( $this->id, '_email', true );
+        $email = $this->get_hydrated_meta( '_email' );
         return $email;
     }
 
     public function guest_email_label() {
-        return get_directorist_option( 'guest_email', __( 'Email Address', 'directorist' ) );
+        return $this->get_hydrated_option( 'guest_email', __( 'Email Address', 'directorist' ) );
     }
 
     public function guest_email_placeholder() {
-        return get_directorist_option( 'guest_email_placeholder', __( 'Enter email address', 'directorist' ) );
+        return $this->get_hydrated_option( 'guest_email_placeholder', __( 'Enter email address', 'directorist' ) );
     }
 
     // TODO: When it's compatible with `the_content()` template tag then we won't have to use do_shortcode and wpautop functions.
     public function get_contents() {
+        if ( $this->contents_prepared ) {
+            return $this->contents;
+        }
+
+        $this->contents_prepared = true;
         $content = $this->post->post_content;
         $content = wpautop( $content );
         $content = $this->filter_single_listing_content( $content );
         $content = $this->fix_media_src_attributes( $content );
-        
-        return apply_filters( 'directorist_the_content', $content );
+
+        $this->contents = apply_filters( 'directorist_the_content', $content );
+
+        return $this->contents;
     }
 
     private function fix_media_src_attributes( $content ) {
@@ -1367,28 +1509,33 @@ class Directorist_Single_Listing {
     }
 
     public function map_data() {
+        $cache_map_data = (bool) apply_filters( 'directorist_cache_single_listing_map_data', true, $this );
+        if ( $cache_map_data && array_key_exists( 'map_data', $this->computed ) ) {
+            return $this->computed['map_data'];
+        }
+
         $id      = $this->id;
 
-        $manual_lat = get_post_meta( $id, '_manual_lat', true );
-        $manual_lng = get_post_meta( $id, '_manual_lng', true );
-        $phone      = get_post_meta( $id, '_phone', true );
+        $manual_lat = $this->get_hydrated_meta( '_manual_lat' );
+        $manual_lng = $this->get_hydrated_meta( '_manual_lng' );
+        $phone      = $this->get_hydrated_meta( '_phone' );
 
-        $address = get_post_meta( $id, '_address', true );
+        $address = $this->get_hydrated_meta( '_address' );
         $ad = ! empty( $address ) ? esc_html( $address ) : '';
 
-        $display_map_info           = apply_filters( 'atbdp_listing_map_info_window', get_directorist_option( 'display_map_info', 1 ) );
-        $display_image_map          = get_directorist_option( 'display_image_map', 1 );
-        $display_title_map          = get_directorist_option( 'display_title_map', 1 );
-        $display_address_map        = get_directorist_option( 'display_address_map', 1 );
-        $display_direction_map      = get_directorist_option( 'display_direction_map', 1 );
-        $display_user_avatar_map    = get_directorist_option( 'display_user_avatar_map', 1 );
-        $display_review_map         = get_directorist_option( 'display_review_map', 1 );
-        $display_price_map          = get_directorist_option( 'display_price_map', 1 );
-        $display_phone_map          = get_directorist_option( 'display_phone_map', 1 );
-        $display_favorite_badge_map = get_directorist_option( 'display_favorite_badge_map', 1 );
+        $display_map_info           = apply_filters( 'atbdp_listing_map_info_window', $this->get_hydrated_option( 'display_map_info', 1 ) );
+        $display_image_map          = $this->get_hydrated_option( 'display_image_map', 1 );
+        $display_title_map          = $this->get_hydrated_option( 'display_title_map', 1 );
+        $display_address_map        = $this->get_hydrated_option( 'display_address_map', 1 );
+        $display_direction_map      = $this->get_hydrated_option( 'display_direction_map', 1 );
+        $display_user_avatar_map    = $this->get_hydrated_option( 'display_user_avatar_map', 1 );
+        $display_review_map         = $this->get_hydrated_option( 'display_review_map', 1 );
+        $display_price_map          = $this->get_hydrated_option( 'display_price_map', 1 );
+        $display_phone_map          = $this->get_hydrated_option( 'display_phone_map', 1 );
+        $display_favorite_badge_map = $this->get_hydrated_option( 'display_favorite_badge_map', 1 );
 
-        $listing_prv_img = directorist_get_listing_preview_image( $id );
-        $listing_img     = directorist_get_listing_gallery_images( $id );
+        $listing_prv_img = $this->get_hydrated_preview_image();
+        $listing_img     = $this->get_hydrated_gallery_images();
         $listing_type    = directorist_get_listing_directory( $id );
         $default_image   = Helper::default_preview_image_src( $listing_type );
         $listing_title   = get_the_title( $id );
@@ -1486,7 +1633,7 @@ class Directorist_Single_Listing {
          */
         $info_content = apply_filters( 'directorist_single_map_info_content', $info_content, $this );
 
-        $cats = get_the_terms( $this->id, ATBDP_CATEGORY );
+        $cats = $this->get_hydrated_terms( ATBDP_CATEGORY );
         $cat_icon = '';
         // if (!empty($cats)) {
         //  $cat_icon = get_cat_icon($cats[0]->term_id);
@@ -1496,25 +1643,31 @@ class Directorist_Single_Listing {
 
         $args = [
             'listing'               => $this,
-            'default_latitude'      => get_directorist_option( 'default_latitude', '40.7127753' ),
-            'default_longitude'     => get_directorist_option( 'default_longitude', '-74.0059728' ),
+            'default_latitude'      => $this->get_hydrated_option( 'default_latitude', '40.7127753' ),
+            'default_longitude'     => $this->get_hydrated_option( 'default_longitude', '-74.0059728' ),
             'manual_lat'            => $manual_lat,
             'manual_lng'            => $manual_lng,
-            'listing_location_text' => apply_filters( 'atbdp_single_listing_map_section_text', get_directorist_option( 'listing_location_text', __( 'Location', 'directorist' ) ) ),
-            'select_listing_map'    => get_directorist_option( 'select_listing_map', 'google' ),
+            'listing_location_text' => apply_filters( 'atbdp_single_listing_map_section_text', $this->get_hydrated_option( 'listing_location_text', __( 'Location', 'directorist' ) ) ),
+            'select_listing_map'    => $this->get_hydrated_option( 'select_listing_map', 'google' ),
             'info_content'          => $info_content,
             'display_map_info'      => $display_map_info,
-            'map_zoom_level'        => get_directorist_option( 'map_zoom_level', 16 ),
+            'map_zoom_level'        => $this->get_hydrated_option( 'map_zoom_level', 16 ),
             'cat_icon'              => $cat_icon,
         ];
 
-        return wp_json_encode( $args, JSON_HEX_QUOT | JSON_HEX_APOS | JSON_HEX_AMP );
+        $map_data = wp_json_encode( $args, JSON_HEX_QUOT | JSON_HEX_APOS | JSON_HEX_AMP );
+
+        if ( $cache_map_data ) {
+            $this->computed['map_data'] = $map_data;
+        }
+
+        return $map_data;
     }
 
     public function get_review_template() {
         // Review
-        $average           = directorist_get_listing_rating( $this->id );
-        $reviews_count     = directorist_get_listing_review_count( $this->id );
+        $average           = $this->get_rating_count();
+        $reviews_count     = $this->get_review_count();
 
         // Icons
         $icon_empty_star = directorist_icon( 'fas fa-star', false, 'star-empty' );
@@ -1613,8 +1766,8 @@ class Directorist_Single_Listing {
         $relationship = ( $logic == 'AND' ) ? 'AND' : 'OR';
 
         $id            = $this->id;
-        $atbd_cats     = get_the_terms( $id, ATBDP_CATEGORY );
-        $atbd_tags     = get_the_terms( $id, ATBDP_TAGS );
+        $atbd_cats     = $this->get_hydrated_terms( ATBDP_CATEGORY );
+        $atbd_tags     = $this->get_hydrated_terms( ATBDP_TAGS );
         $atbd_cats_ids = [];
         $atbd_tags_ids = [];
 
@@ -1644,6 +1797,7 @@ class Directorist_Single_Listing {
                 ],
             ],
             'posts_per_page' => (int) $number,
+            'no_found_rows'  => true,
             'post__not_in'   => [$id],
         ];
 
@@ -1666,14 +1820,26 @@ class Directorist_Single_Listing {
 
         $args = apply_filters( 'directorist_related_listing_args', $args, $this );
 
+        $cache_key = md5( maybe_serialize( $args ) );
+        $use_cache = (bool) apply_filters( 'directorist_cache_related_listings', true, $args, $this );
+
+        if ( $use_cache && isset( $this->related_listings[ $cache_key ] ) ) {
+            return $this->related_listings[ $cache_key ];
+        }
+
         $related = new Directorist_Listings( [], 'related', $args, ['cache' => false] );
+        $related->prime_post_caches();
+
+        if ( $use_cache ) {
+            $this->related_listings[ $cache_key ] = $related;
+        }
 
         return $related;
     }
 
     public function related_slider_attr() {
         $atts = [
-            'columns'   => get_directorist_type_option( $this->type, 'similar_listings_number_of_columns', 3 ),
+            'columns'   => $this->get_hydrated_type_option( 'similar_listings_number_of_columns', 3 ),
             'prevArrow' => sprintf( '<a class="directorist-slc__nav directorist-slc__nav--left">%s</a>', directorist_icon( 'las la-angle-left', false ) ),
             'nextArrow' => sprintf( '<a class="directorist-slc__nav directorist-slc__nav--right">%s</a>', directorist_icon( 'las la-angle-right', false ) ),
         ];
@@ -1681,7 +1847,7 @@ class Directorist_Single_Listing {
     }
 
     public function get_related_columns() {
-        $columns = get_directorist_type_option( $this->type, 'similar_listings_number_of_columns', 3 );
+        $columns = $this->get_hydrated_type_option( 'similar_listings_number_of_columns', 3 );
         return 12 / $columns;
     }
 

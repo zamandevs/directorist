@@ -36,7 +36,7 @@ final class Directorist_Base {
      * @var object|ATBDP_Metabox
      * @since 1.0
      */
-    public $metabox;
+    protected $metabox;
 
     /**
      * ATBDP_Custom_Post Object.
@@ -60,7 +60,7 @@ final class Directorist_Base {
      * @var object|ATBDP_Ajax_Handler
      * @since 1.0
      */
-    public $ajax_handler;
+    protected $ajax_handler;
 
     /**
      * ATBDP_Shortcode Object.
@@ -108,7 +108,7 @@ final class Directorist_Base {
      * @var ATBDP_Gateway
      * @since 3.1.0
      */
-    public $gateway;
+    protected $gateway;
 
     /**
      * ATBDP_Order Object.
@@ -156,7 +156,7 @@ final class Directorist_Base {
      * @var ATBDP_Tools
      * @since 4.7.2
      */
-    public $tools;
+    protected $tools;
 
     /**
      * Insights class
@@ -178,15 +178,15 @@ final class Directorist_Base {
 
     public $settings_panel;
 
-    public $hooks;
+    protected $hooks;
 
-    public $review;
+    protected $review;
 
     public $beta;
 
-    public $background_image_process = null;
+    protected $background_image_process = null;
 
-    public $formgent;
+    protected $formgent;
 
     /**
      * Main Directorist_Base Instance.
@@ -219,10 +219,23 @@ final class Directorist_Base {
 
             self::$instance->includes();
 
-            new Directorist\AdminMenu();
-            new Directorist\FeaturedListingCheckout();
-            new Directorist\PaymentService();
-            new Directorist\PaymentCheckoutService();
+            $is_ajax_request = defined( 'DOING_AJAX' ) && DOING_AJAX;
+            $is_cron_request = defined( 'DOING_CRON' ) && DOING_CRON;
+            $is_admin_screen = is_admin() && ! $is_ajax_request;
+            $ajax_action     = $is_ajax_request && isset( $_REQUEST['action'] ) // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+                ? sanitize_key( wp_unslash( $_REQUEST['action'] ) ) // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+                : '';
+
+            if ( $is_admin_screen ) {
+                new Directorist\AdminMenu();
+            }
+            if ( $is_admin_screen || 'directorist_setup_wizard' === $ajax_action ) {
+                new Directorist_Setup_Wizard();
+            }
+            Directorist\FeaturedListingCheckout::register_hooks();
+            Directorist\PaymentService::register_hooks();
+            Directorist\PaymentCheckoutService::register_hooks();
+            ATBDP_Checkout::register_hooks();
 
             // Check if this is a beta version by looking for 'Beta' in version string
             self::$instance->beta = false !== stripos( ATBDP_VERSION, 'Beta' );
@@ -249,35 +262,55 @@ final class Directorist_Base {
             self::$instance->settings_panel = new ATBDP_Settings_Panel();
             self::$instance->settings_panel->run();
 
-            self::$instance->hooks = new ATBDP_Hooks();
-            self::$instance->metabox = new ATBDP_Metabox();
-            self::$instance->ajax_handler = new ATBDP_Ajax_Handler();
+            ATBDP_Hooks::register();
+            if ( $is_admin_screen || 'atbdp_dynamic_admin_listing_form' === $ajax_action ) {
+                self::$instance->metabox = new ATBDP_Metabox();
+            }
+            if ( $is_ajax_request ) {
+                self::$instance->ajax_handler = new ATBDP_Ajax_Handler();
+            }
             self::$instance->helper = new ATBDP_Helper();
             self::$instance->listing = new ATBDP_Listing();
             self::$instance->user = new ATBDP_User();
             self::$instance->roles = new ATBDP_Roles();
-            if ( class_exists( 'ATBDP_Gateway' ) ) {
+            if ( is_admin() && class_exists( 'ATBDP_Gateway' ) ) {
                 self::$instance->gateway = new ATBDP_Gateway();
             }
             // self::$instance->order = new ATBDP_Order();
             self::$instance->shortcode = new \Directorist\ATBDP_Shortcode();
             self::$instance->email = new ATBDP_Email();
             self::$instance->seo = new ATBDP_SEO();
-            self::$instance->formgent = new ATBDP_Formgent();
+            add_action( 'plugins_loaded', [ ATBDP_Formgent::class, 'maybe_init' ], 20 );
             // self::$instance->validator = new ATBDP_Validator;
             // self::$instance->ATBDP_Single_Templates = new ATBDP_Single_Templates;
-            self::$instance->tools = new ATBDP_Tools();
-            new Directorist_Multilingual();
+            if ( $is_admin_screen || in_array( $ajax_action, [ 'directorist_import_listings', 'directorist_update_csv_columns_to_listing_fields_table' ], true ) ) {
+                self::$instance->tools = new ATBDP_Tools();
+            }
+            Directorist_Multilingual::register_hooks();
 
-            self::$instance->background_image_process = new \Directorist\Background_Image_Process();
+            if ( $is_ajax_request || $is_cron_request ) {
+                self::$instance->background_image_process = new \Directorist\Background_Image_Process();
+            }
 
             // Load widgets
-            Directorist\Widgets\Init::instance();
+            Directorist\Widgets\Init::register_hooks();
 
             /*Extensions Link*/
             /*initiate extensions link*/
 
-            if ( is_admin() ) {
+            $extension_ajax_actions = [
+                'atbdp_activate_plugin',
+                'atbdp_activate_theme',
+                'atbdp_authenticate_the_customer',
+                'atbdp_close_subscriptions_sassion',
+                'atbdp_download_file',
+                'atbdp_install_file_from_subscriptions',
+                'atbdp_plugins_bulk_action',
+                'atbdp_refresh_purchase_status',
+                'atbdp_update_plugins',
+                'atbdp_update_theme',
+            ];
+            if ( $is_admin_screen || in_array( $ajax_action, $extension_ajax_actions, true ) ) {
                 new ATBDP_Extensions();
             }
 
@@ -286,7 +319,6 @@ final class Directorist_Base {
              * Will be removed in future.
              */
             include_once ATBDP_INC_DIR . 'review/class-bc-review-rating.php';
-            self::$instance->review = new ATBDP_Review_Rating();
 
             //activate rewrite api
             new ATBDP_Rewrite();
@@ -304,18 +336,24 @@ final class Directorist_Base {
             }
 
             // init offline gateway
-            new ATBDP_Offline_Gateway();
+            if ( is_admin() ) {
+                new ATBDP_Offline_Gateway();
+            }
             // Init Cron jobs to run some periodic tasks
-            new ATBDP_Cron();
+            ATBDP_Cron::register_hooks();
             // add upgrade feature
-            new ATBDP_Upgrade();
+            if ( $is_admin_screen ) {
+                new ATBDP_Upgrade();
+            }
             // add uninstall menu
             add_filter( 'atbdp_settings_menus', [self::$instance, 'add_uninstall_menu'] );
             add_filter( 'display_post_states', [self::$instance, 'add_page_states'], 10, 2 );
             self::init_hooks();
 
             // Initialize appsero tracking
-            self::$instance->init_appsero();
+            if ( is_admin() || $is_cron_request || ( defined( 'WP_CLI' ) && WP_CLI ) ) {
+                self::$instance->init_appsero();
+            }
 
             // Register blocks
             self::$instance->init_blocks();
@@ -425,7 +463,12 @@ final class Directorist_Base {
     private function includes() {
         $this->autoload( ATBDP_INC_DIR . 'helpers/' );
         $this->autoload( ATBDP_INC_DIR . 'asset-loader/' );
-        $this->autoload( ATBDP_INC_DIR . 'widgets/' );
+        self::require_files(
+            [
+                ATBDP_INC_DIR . 'widgets/lib-widget-fields',
+                ATBDP_INC_DIR . 'widgets/init',
+            ]
+        );
 
         self::require_files( [ ATBDP_DIR . 'utils/index' ] );
 
@@ -524,6 +567,67 @@ final class Directorist_Base {
     public function __wakeup() {
         // Unserializing instances of the class is forbidden.
 		_doing_it_wrong( __FUNCTION__, __( 'Cheatin&#8217; huh?', 'directorist' ), '1.0'); // @codingStandardsIgnoreLine.
+    }
+
+    public function __get( $name ) {
+        return $this->get_lazy_service( $name );
+    }
+
+    public function __set( $name, $value ) {
+        if ( in_array( $name, $this->get_lazy_service_names(), true ) ) {
+            $this->{$name} = $value;
+        }
+    }
+
+    public function __isset( $name ) {
+        if ( ! in_array( $name, $this->get_lazy_service_names(), true ) ) {
+            return false;
+        }
+
+        return null !== $this->get_lazy_service( $name );
+    }
+
+    private function get_lazy_service_names() {
+        return [ 'ajax_handler', 'background_image_process', 'formgent', 'gateway', 'hooks', 'metabox', 'review', 'tools' ];
+    }
+
+    private function get_lazy_service( $name ) {
+        if ( ! in_array( $name, $this->get_lazy_service_names(), true ) ) {
+            return null;
+        }
+
+        if ( null !== $this->{$name} ) {
+            return $this->{$name};
+        }
+
+        switch ( $name ) {
+            case 'ajax_handler':
+                $this->ajax_handler = new ATBDP_Ajax_Handler();
+                break;
+            case 'background_image_process':
+                $this->background_image_process = new \Directorist\Background_Image_Process();
+                break;
+            case 'formgent':
+                $this->formgent = new ATBDP_Formgent();
+                break;
+            case 'gateway':
+                $this->gateway = new ATBDP_Gateway();
+                break;
+            case 'hooks':
+                $this->hooks = new ATBDP_Hooks();
+                break;
+            case 'metabox':
+                $this->metabox = new ATBDP_Metabox();
+                break;
+            case 'review':
+                $this->review = new ATBDP_Review_Rating();
+                break;
+            case 'tools':
+                $this->tools = new ATBDP_Tools();
+                break;
+        }
+
+        return $this->{$name};
     }
 
     /**
