@@ -24,6 +24,12 @@ use Directorist\Setup\Activation;
  * @since 1.0
  */
 final class Directorist_Base {
+    private static $lazy_legacy_class_files = [
+        'ATBDP_Settings_Panel' => 'class-settings-panel.php',
+    ];
+
+    private static $legacy_service_autoloader_registered = false;
+
     /**
      * Singleton instance.
      * @var Directorist_Base
@@ -176,7 +182,7 @@ final class Directorist_Base {
 
     public $multi_directory_manager;
 
-    public $settings_panel;
+    protected $settings_panel;
 
     protected $hooks;
 
@@ -259,8 +265,15 @@ final class Directorist_Base {
             self::$instance->multi_directory_manager = new Directorist\Multi_Directory\Multi_Directory_Manager();
             self::$instance->multi_directory_manager->run();
 
-            self::$instance->settings_panel = new ATBDP_Settings_Panel();
-            self::$instance->settings_panel->run();
+            $load_settings_panel = $is_admin_screen || 'save_settings_data' === $ajax_action;
+            $load_settings_panel = (bool) apply_filters( 'directorist_load_settings_panel', $load_settings_panel, $ajax_action );
+
+            if ( ! apply_filters( 'directorist_defer_settings_panel', true ) || $load_settings_panel ) {
+                self::$instance->settings_panel = new ATBDP_Settings_Panel();
+                self::$instance->settings_panel->run();
+            } else {
+                self::register_settings_lifecycle_hooks();
+            }
 
             ATBDP_Hooks::register();
             if ( $is_admin_screen || 'atbdp_dynamic_admin_listing_form' === $ajax_action ) {
@@ -461,6 +474,8 @@ final class Directorist_Base {
      * @return void
      */
     private function includes() {
+        self::register_legacy_service_autoloader();
+
         $this->autoload( ATBDP_INC_DIR . 'helpers/' );
         $this->autoload( ATBDP_INC_DIR . 'asset-loader/' );
         self::require_files(
@@ -516,7 +531,7 @@ final class Directorist_Base {
         load_dependencies( 'all', ATBDP_INC_DIR . 'hooks/' );
         load_dependencies( 'all', ATBDP_INC_DIR . 'modules/' );
 
-        load_dependencies( 'all', ATBDP_CLASS_DIR ); // load all php files from ATBDP_CLASS_DIR
+        self::load_legacy_class_dependencies();
 
         /*Load gateway related stuff*/
         load_dependencies( 'all', ATBDP_INC_DIR . 'gateways/' );
@@ -534,6 +549,57 @@ final class Directorist_Base {
                 require_once "{$file}.php";
             }
         }
+    }
+
+    private static function register_legacy_service_autoloader() {
+        if ( self::$legacy_service_autoloader_registered ) {
+            return;
+        }
+
+        spl_autoload_register( [ __CLASS__, 'autoload_legacy_service' ] );
+        self::$legacy_service_autoloader_registered = true;
+    }
+
+    public static function autoload_legacy_service( $class_name ) {
+        $class_name = ltrim( $class_name, '\\' );
+
+        if ( ! isset( self::$lazy_legacy_class_files[ $class_name ] ) ) {
+            return;
+        }
+
+        require_once ATBDP_CLASS_DIR . self::$lazy_legacy_class_files[ $class_name ];
+    }
+
+    private static function load_legacy_class_dependencies() {
+        $files = scandir( ATBDP_CLASS_DIR );
+
+        if ( ! is_array( $files ) ) {
+            return;
+        }
+
+        $lazy_files = array_values( self::$lazy_legacy_class_files );
+
+        foreach ( $files as $file ) {
+            if ( ! preg_match( '/\.php$/i', $file ) || in_array( $file, $lazy_files, true ) ) {
+                continue;
+            }
+
+            require_once ATBDP_CLASS_DIR . $file;
+        }
+    }
+
+    private static function register_settings_lifecycle_hooks() {
+        add_action( 'directorist_installed', [ __CLASS__, 'update_settings_init_options' ] );
+        add_action( 'directorist_updated', [ __CLASS__, 'update_settings_init_options' ] );
+    }
+
+    private static function unregister_settings_lifecycle_hooks() {
+        remove_action( 'directorist_installed', [ __CLASS__, 'update_settings_init_options' ] );
+        remove_action( 'directorist_updated', [ __CLASS__, 'update_settings_init_options' ] );
+    }
+
+    public static function update_settings_init_options() {
+        update_directorist_option( 'lazy_load_taxonomy_fields', directorist_has_no_listing() );
     }
 
     public static function prepare_plugin() {
@@ -588,7 +654,7 @@ final class Directorist_Base {
     }
 
     private function get_lazy_service_names() {
-        return [ 'ajax_handler', 'background_image_process', 'formgent', 'gateway', 'hooks', 'metabox', 'review', 'tools' ];
+        return [ 'ajax_handler', 'background_image_process', 'formgent', 'gateway', 'hooks', 'metabox', 'review', 'settings_panel', 'tools' ];
     }
 
     private function get_lazy_service( $name ) {
@@ -621,6 +687,11 @@ final class Directorist_Base {
                 break;
             case 'review':
                 $this->review = new ATBDP_Review_Rating();
+                break;
+            case 'settings_panel':
+                self::unregister_settings_lifecycle_hooks();
+                $this->settings_panel = new ATBDP_Settings_Panel();
+                $this->settings_panel->run();
                 break;
             case 'tools':
                 $this->tools = new ATBDP_Tools();
