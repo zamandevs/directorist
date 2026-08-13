@@ -480,6 +480,7 @@ final class Directorist_Base {
      */
     private function includes() {
         self::register_legacy_service_autoloader();
+        $defer_domain_classes = $this->register_domain_class_loader();
 
         $this->autoload( ATBDP_INC_DIR . 'helpers/' );
         $this->autoload( ATBDP_INC_DIR . 'asset-loader/' );
@@ -492,18 +493,21 @@ final class Directorist_Base {
 
         self::require_files( [ ATBDP_DIR . 'utils/index' ] );
 
-        $this->autoload( ATBDP_INC_DIR . 'contracts/' );
-        $this->autoload( ATBDP_INC_DIR . 'db-models/' );
-        $this->autoload( ATBDP_INC_DIR . 'dto/' );
-        $this->autoload( ATBDP_INC_DIR . 'dto/order/' );
-        $this->autoload( ATBDP_INC_DIR . 'dto/payment/' );
-        $this->autoload( ATBDP_INC_DIR . 'dto/refund/' );
-        $this->autoload( ATBDP_INC_DIR . 'dto/subscription/' );
-        $this->autoload( ATBDP_INC_DIR . 'enums/' );
-        $this->autoload( ATBDP_INC_DIR . 'enums/order/' );
-        $this->autoload( ATBDP_INC_DIR . 'enums/payment/' );
-        $this->autoload( ATBDP_INC_DIR . 'enums/refund/' );
-        $this->autoload( ATBDP_INC_DIR . 'repositories/' );
+        if ( ! $defer_domain_classes ) {
+            $this->autoload( ATBDP_INC_DIR . 'contracts/' );
+            $this->autoload( ATBDP_INC_DIR . 'db-models/' );
+            $this->autoload( ATBDP_INC_DIR . 'dto/' );
+            $this->autoload( ATBDP_INC_DIR . 'dto/order/' );
+            $this->autoload( ATBDP_INC_DIR . 'dto/payment/' );
+            $this->autoload( ATBDP_INC_DIR . 'dto/refund/' );
+            $this->autoload( ATBDP_INC_DIR . 'dto/subscription/' );
+            $this->autoload( ATBDP_INC_DIR . 'enums/' );
+            $this->autoload( ATBDP_INC_DIR . 'enums/order/' );
+            $this->autoload( ATBDP_INC_DIR . 'enums/payment/' );
+            $this->autoload( ATBDP_INC_DIR . 'enums/refund/' );
+            $this->autoload( ATBDP_INC_DIR . 'repositories/' );
+        }
+
         $this->autoload( ATBDP_INC_DIR . 'setup/' );
         
         self::require_files(
@@ -529,22 +533,48 @@ final class Directorist_Base {
             ]
         );
 
-        $this->autoload( ATBDP_INC_DIR . 'database/' );
+        if ( ! $defer_domain_classes ) {
+            $this->autoload( ATBDP_INC_DIR . 'database/' );
+            load_dependencies( 'all', ATBDP_INC_DIR . 'data-store/' );
+            load_dependencies( 'all', ATBDP_INC_DIR . 'model/' );
+        }
 
-        load_dependencies( 'all', ATBDP_INC_DIR . 'data-store/' );
-        load_dependencies( 'all', ATBDP_INC_DIR . 'model/' );
         load_dependencies( 'all', ATBDP_INC_DIR . 'hooks/' );
         load_dependencies( 'all', ATBDP_INC_DIR . 'modules/' );
 
         self::load_legacy_class_dependencies();
 
-        /*Load gateway related stuff*/
-        load_dependencies( 'all', ATBDP_INC_DIR . 'gateways/' );
-        /*Load payment related stuff*/
-        load_dependencies( 'all', ATBDP_INC_DIR . 'payments/' );
+        if ( ! $defer_domain_classes ) {
+            load_dependencies( 'all', ATBDP_INC_DIR . 'gateways/' );
+            load_dependencies( [ 'class-order' ], ATBDP_INC_DIR . 'payments/' );
+        }
+
+        self::require_files( [ ATBDP_INC_DIR . 'payments/functions' ] );
         load_dependencies( 'all', ATBDP_INC_DIR . 'checkout/' );
 
-        $this->autoload( ATBDP_INC_DIR . 'deprecated/' );
+        if ( ! $defer_domain_classes ) {
+            self::require_files(
+                [
+                    ATBDP_INC_DIR . 'deprecated/class-atbdp-listing-store',
+                    ATBDP_INC_DIR . 'deprecated/class-script-helper',
+                ]
+            );
+        }
+
+        self::require_files( [ ATBDP_INC_DIR . 'deprecated/functions' ] );
+    }
+
+    private function register_domain_class_loader() {
+        $defer = defined( 'DIRECTORIST_DEFER_DOMAIN_CLASSES' ) ? (bool) DIRECTORIST_DEFER_DOMAIN_CLASSES : true;
+
+        if ( ! apply_filters( 'directorist_defer_domain_classes', $defer ) ) {
+            return false;
+        }
+
+        require_once ATBDP_INC_DIR . 'class-autoloader.php';
+        Directorist\Class_Autoloader::register( require ATBDP_INC_DIR . 'class-map.php' );
+
+        return true;
     }
 
     // require_files
