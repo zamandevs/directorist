@@ -24,6 +24,12 @@ use Directorist\Setup\Activation;
  * @since 1.0
  */
 final class Directorist_Base {
+    private static $lazy_legacy_class_files = [
+        'ATBDP_SEO' => 'class-seo.php',
+    ];
+
+    private static $legacy_service_autoloader_registered = false;
+
     /**
      * Singleton instance.
      * @var Directorist_Base
@@ -140,7 +146,7 @@ final class Directorist_Base {
      * @var ATBDP_SEO
      * @since 4.7.0
      */
-    public $seo;
+    protected $seo;
 
     /**
      * Directorist_Multilingual Object.
@@ -279,7 +285,11 @@ final class Directorist_Base {
             // self::$instance->order = new ATBDP_Order();
             self::$instance->shortcode = new \Directorist\ATBDP_Shortcode();
             self::$instance->email = new ATBDP_Email();
-            self::$instance->seo = new ATBDP_SEO();
+            if ( ! apply_filters( 'directorist_defer_seo_service', true ) ) {
+                self::$instance->seo = new ATBDP_SEO();
+            } elseif ( ! empty( get_directorist_option( 'atbdp_enable_seo' ) ) ) {
+                add_action( 'wp', [ self::$instance, 'initialize_seo' ], 0 );
+            }
             add_action( 'plugins_loaded', [ ATBDP_Formgent::class, 'maybe_init' ], 20 );
             // self::$instance->validator = new ATBDP_Validator;
             // self::$instance->ATBDP_Single_Templates = new ATBDP_Single_Templates;
@@ -461,6 +471,8 @@ final class Directorist_Base {
      * @return void
      */
     private function includes() {
+        self::register_legacy_service_autoloader();
+
         $this->autoload( ATBDP_INC_DIR . 'helpers/' );
         $this->autoload( ATBDP_INC_DIR . 'asset-loader/' );
         self::require_files(
@@ -516,7 +528,7 @@ final class Directorist_Base {
         load_dependencies( 'all', ATBDP_INC_DIR . 'hooks/' );
         load_dependencies( 'all', ATBDP_INC_DIR . 'modules/' );
 
-        load_dependencies( 'all', ATBDP_CLASS_DIR ); // load all php files from ATBDP_CLASS_DIR
+        self::load_legacy_class_dependencies();
 
         /*Load gateway related stuff*/
         load_dependencies( 'all', ATBDP_INC_DIR . 'gateways/' );
@@ -533,6 +545,43 @@ final class Directorist_Base {
             if ( file_exists( "{$file}.php" ) ) {
                 require_once "{$file}.php";
             }
+        }
+    }
+
+    private static function register_legacy_service_autoloader() {
+        if ( self::$legacy_service_autoloader_registered ) {
+            return;
+        }
+
+        spl_autoload_register( [ __CLASS__, 'autoload_legacy_service' ] );
+        self::$legacy_service_autoloader_registered = true;
+    }
+
+    public static function autoload_legacy_service( $class_name ) {
+        $class_name = ltrim( $class_name, '\\' );
+
+        if ( ! isset( self::$lazy_legacy_class_files[ $class_name ] ) ) {
+            return;
+        }
+
+        require_once ATBDP_CLASS_DIR . self::$lazy_legacy_class_files[ $class_name ];
+    }
+
+    private static function load_legacy_class_dependencies() {
+        $files = scandir( ATBDP_CLASS_DIR );
+
+        if ( ! is_array( $files ) ) {
+            return;
+        }
+
+        $lazy_files = array_values( self::$lazy_legacy_class_files );
+
+        foreach ( $files as $file ) {
+            if ( ! preg_match( '/\.php$/i', $file ) || in_array( $file, $lazy_files, true ) ) {
+                continue;
+            }
+
+            require_once ATBDP_CLASS_DIR . $file;
         }
     }
 
@@ -587,8 +636,16 @@ final class Directorist_Base {
         return null !== $this->get_lazy_service( $name );
     }
 
+    public function initialize_seo() {
+        remove_action( 'wp', [ $this, 'initialize_seo' ], 0 );
+
+        if ( null === $this->seo ) {
+            $this->seo = new ATBDP_SEO( true );
+        }
+    }
+
     private function get_lazy_service_names() {
-        return [ 'ajax_handler', 'background_image_process', 'formgent', 'gateway', 'hooks', 'metabox', 'review', 'tools' ];
+        return [ 'ajax_handler', 'background_image_process', 'formgent', 'gateway', 'hooks', 'metabox', 'review', 'seo', 'tools' ];
     }
 
     private function get_lazy_service( $name ) {
@@ -621,6 +678,9 @@ final class Directorist_Base {
                 break;
             case 'review':
                 $this->review = new ATBDP_Review_Rating();
+                break;
+            case 'seo':
+                $this->seo = new ATBDP_SEO();
                 break;
             case 'tools':
                 $this->tools = new ATBDP_Tools();
