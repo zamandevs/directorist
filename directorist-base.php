@@ -516,7 +516,7 @@ final class Directorist_Base {
         load_dependencies( 'all', ATBDP_INC_DIR . 'hooks/' );
         load_dependencies( 'all', ATBDP_INC_DIR . 'modules/' );
 
-        load_dependencies( 'all', ATBDP_CLASS_DIR ); // load all php files from ATBDP_CLASS_DIR
+        $this->load_legacy_class_dependencies();
 
         /*Load gateway related stuff*/
         load_dependencies( 'all', ATBDP_INC_DIR . 'gateways/' );
@@ -525,6 +525,24 @@ final class Directorist_Base {
         load_dependencies( 'all', ATBDP_INC_DIR . 'checkout/' );
 
         $this->autoload( ATBDP_INC_DIR . 'deprecated/' );
+    }
+
+    private function load_legacy_class_dependencies() {
+        $defer = defined( 'DIRECTORIST_DEFER_POLYLANG_ADAPTER' ) ? (bool) DIRECTORIST_DEFER_POLYLANG_ADAPTER : true;
+        $defer = (bool) apply_filters( 'directorist_defer_polylang_adapter', $defer );
+
+        if ( ! $defer ) {
+            load_dependencies( 'all', ATBDP_CLASS_DIR );
+            return;
+        }
+
+        foreach ( scandir( ATBDP_CLASS_DIR ) as $file ) {
+            if ( 'class-multilingual-polylang.php' === $file || ! preg_match( '/\.php$/i', $file ) ) {
+                continue;
+            }
+
+            require_once ATBDP_CLASS_DIR . $file;
+        }
     }
 
     // require_files
