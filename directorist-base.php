@@ -613,6 +613,12 @@ final class Directorist_Base {
         }
 
         $lazy_files = array_values( self::$lazy_legacy_class_files );
+        $defer_polylang = defined( 'DIRECTORIST_DEFER_POLYLANG_ADAPTER' ) ? (bool) DIRECTORIST_DEFER_POLYLANG_ADAPTER : true;
+        $defer_polylang = (bool) apply_filters( 'directorist_defer_polylang_adapter', $defer_polylang );
+
+        if ( $defer_polylang ) {
+            $lazy_files[] = 'class-multilingual-polylang.php';
+        }
 
         foreach ( $files as $file ) {
             if ( ! preg_match( '/\.php$/i', $file ) || in_array( $file, $lazy_files, true ) ) {
