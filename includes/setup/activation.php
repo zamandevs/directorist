@@ -9,6 +9,8 @@ use Directorist\Enums\Payment\Status as PaymentStatus;
 use Directorist\Enums\Refund\Status as RefundStatus;
 use Directorist\Enums\Order\TaxType;
 use Directorist\Enums\Order\DiscountType;
+use Directorist\database\Listing_Index_Schema;
+use Directorist\database\Listing_Index_Maintenance;
 use Directorist\Utils\Database\Schema\Blueprint;
 use Directorist\Utils\Database\Schema\Schema;
 
@@ -77,6 +79,9 @@ class Activation {
                 $table->timestamps();
             }
         );
+
+        Listing_Index_Schema::create();
+        Listing_Index_Maintenance::schedule_if_needed();
     }
 
     private static function sync_order_status_enum() {

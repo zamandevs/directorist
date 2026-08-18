@@ -14,6 +14,22 @@ wp_clear_scheduled_hook( 'directorist_hourly_scheduled_events' );
 function directorist_uninstall() {
     global $wpdb;
 
+    $listing_index_process = 'wp_' . get_current_blog_id() . '_directorist_listing_index';
+
+    wp_clear_scheduled_hook( 'directorist_process_listing_index' );
+    wp_clear_scheduled_hook( $listing_index_process . '_cron' );
+    delete_site_transient( $listing_index_process . '_process_lock' );
+
+    $queue_table  = is_multisite() ? $wpdb->sitemeta : $wpdb->options;
+    $queue_column = is_multisite() ? 'meta_key' : 'option_name';
+
+    $wpdb->query(
+        $wpdb->prepare(
+            'DELETE FROM ' . $queue_table . ' WHERE ' . $queue_column . ' LIKE %s',
+            $wpdb->esc_like( $listing_index_process . '_batch_' ) . '%'
+        )
+    );
+
     // Delete selected pages
     wp_delete_post( get_directorist_option( 'add_listing_page' ), true );
     wp_delete_post( get_directorist_option( 'all_listing_page' ), true );
@@ -55,6 +71,13 @@ function directorist_uninstall() {
 
     // Delete review database
     $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}atbdp_review" );
+    $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}directorist_listing_field_index" );
+    $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}directorist_listing_field_exact_index" );
+    $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}directorist_listing_field_number_index" );
+    $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}directorist_listing_field_date_index" );
+    $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}directorist_listing_field_text_index" );
+    $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}directorist_listing_index" );
+    $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}directorist_listing_index_state" );
 
     // Delete usermeta
     $wpdb->query( "DELETE FROM $wpdb->usermeta WHERE meta_key LIKE '%atbdp%';" );
@@ -84,11 +107,30 @@ function directorist_uninstall() {
         'atbdp_roles_version',
         'at_biz_dir-location_children',
         'at_biz_dir-category_children',
+        'directorist_listing_index_schema_version',
+        'directorist_listing_index_data_version',
+        'directorist_listing_index_status',
+        'directorist_listing_index_schema_health',
+        'directorist_listing_index_schema_repair_required',
+        'directorist_listing_index_enabled',
+        'directorist_listing_index_mutation_version',
+        'directorist_listing_index_last_rebuild_mutations',
+        'directorist_listing_index_ambiguous_meta',
+        'directorist_listing_index_rebuild_cursor',
+        'directorist_listing_index_rebuild_phase',
+        'directorist_listing_index_rebuild_verification',
+        'directorist_listing_index_rebuild_started_mutation',
+        'directorist_listing_index_rebuild_deployment',
+        'directorist_listing_index_trusted_deployment',
+        'directorist_listing_index_process_lock',
+        'directorist_listing_index_retry_after',
     ];
 
     foreach ( $atbdp_settings as $settings ) {
         delete_option( $settings );
     }
+
+    delete_site_option( 'directorist_listing_index_deployment_token' );
 }
 
 if ( is_multisite() ) {
