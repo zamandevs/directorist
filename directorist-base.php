@@ -36,7 +36,7 @@ final class Directorist_Base {
      * @var object|ATBDP_Metabox
      * @since 1.0
      */
-    public $metabox;
+    protected $metabox;
 
     /**
      * ATBDP_Custom_Post Object.
@@ -60,7 +60,7 @@ final class Directorist_Base {
      * @var object|ATBDP_Ajax_Handler
      * @since 1.0
      */
-    public $ajax_handler;
+    protected $ajax_handler;
 
     /**
      * ATBDP_Shortcode Object.
@@ -108,7 +108,7 @@ final class Directorist_Base {
      * @var ATBDP_Gateway
      * @since 3.1.0
      */
-    public $gateway;
+    protected $gateway;
 
     /**
      * ATBDP_Order Object.
@@ -156,7 +156,7 @@ final class Directorist_Base {
      * @var ATBDP_Tools
      * @since 4.7.2
      */
-    public $tools;
+    protected $tools;
 
     /**
      * Insights class
@@ -164,7 +164,7 @@ final class Directorist_Base {
      * @var Insights
      * @since 8.0
      */
-    public $insights = null;
+    protected $insights = null;
 
     /**
      * ATBDP_Single_Templates Object.
@@ -180,13 +180,15 @@ final class Directorist_Base {
 
     public $hooks;
 
-    public $review;
+    protected $review;
 
     public $beta;
 
-    public $background_image_process = null;
+    protected $background_image_process = null;
 
-    public $formgent;
+    protected $formgent;
+
+    private $runtime_properties = [];
 
     /**
      * Main Directorist_Base Instance.
@@ -219,7 +221,15 @@ final class Directorist_Base {
 
             self::$instance->includes();
 
-            new Directorist\AdminMenu();
+            $request = Directorist\Request_Context::current();
+            Directorist\Directorist_Template_Hooks::register_dashboard_ajax( $request );
+
+            if ( $request->is_admin_screen() ) {
+                new Directorist\AdminMenu();
+            }
+            if ( $request->is_admin_screen() || Directorist_Setup_Wizard::handles_ajax_action( $request->ajax_action() ) ) {
+                new Directorist_Setup_Wizard();
+            }
             new Directorist\FeaturedListingCheckout();
             new Directorist\PaymentService();
             new Directorist\PaymentCheckoutService();
@@ -243,26 +253,34 @@ final class Directorist_Base {
             self::$instance->settings_panel->run();
 
             self::$instance->hooks = new ATBDP_Hooks();
-            self::$instance->metabox = new ATBDP_Metabox();
-            self::$instance->ajax_handler = new ATBDP_Ajax_Handler();
+            if ( $request->is_admin_screen() || ATBDP_Metabox::handles_ajax_action( $request->ajax_action() ) ) {
+                self::$instance->metabox = new ATBDP_Metabox();
+            }
+            if ( ATBDP_Ajax_Handler::should_boot( $request ) ) {
+                self::$instance->ajax_handler = new ATBDP_Ajax_Handler( $request->ajax_action() );
+            }
             self::$instance->helper = new ATBDP_Helper();
             self::$instance->listing = new ATBDP_Listing();
             self::$instance->user = new ATBDP_User();
             self::$instance->roles = new ATBDP_Roles();
-            if ( class_exists( 'ATBDP_Gateway' ) ) {
+            if ( $request->is_admin_screen() && class_exists( 'ATBDP_Gateway' ) ) {
                 self::$instance->gateway = new ATBDP_Gateway();
             }
             // self::$instance->order = new ATBDP_Order();
             self::$instance->shortcode = new \Directorist\ATBDP_Shortcode();
             self::$instance->email = new ATBDP_Email();
             self::$instance->seo = new ATBDP_SEO();
-            self::$instance->formgent = new ATBDP_Formgent();
+            add_action( 'plugins_loaded', [ ATBDP_Formgent::class, 'maybe_init' ], 20 );
             // self::$instance->validator = new ATBDP_Validator;
             // self::$instance->ATBDP_Single_Templates = new ATBDP_Single_Templates;
-            self::$instance->tools = new ATBDP_Tools();
-            new Directorist_Multilingual();
+            if ( $request->is_admin_screen() || ATBDP_Tools::handles_ajax_action( $request->ajax_action() ) ) {
+                self::$instance->tools = new ATBDP_Tools( $request->is_admin_screen() ? '' : $request->ajax_action() );
+            }
+            Directorist_Multilingual::register_hooks();
 
-            self::$instance->background_image_process = new \Directorist\Background_Image_Process();
+            if ( Directorist\Background_Image_Process::should_boot( $request ) ) {
+                self::$instance->background_image_process = new \Directorist\Background_Image_Process();
+            }
 
             // Load widgets
             Directorist\Widgets\Init::instance();
@@ -270,8 +288,10 @@ final class Directorist_Base {
             /*Extensions Link*/
             /*initiate extensions link*/
 
-            if ( is_admin() ) {
-                new ATBDP_Extensions();
+            if ( $request->is_admin_screen()
+                || ( $request->is_ajax() && ATBDP_Extensions::handles_ajax_action( $request->ajax_action() ) )
+            ) {
+                new ATBDP_Extensions( $request->is_admin_screen() ? '' : $request->ajax_action() );
             }
 
             /**
@@ -279,7 +299,6 @@ final class Directorist_Base {
              * Will be removed in future.
              */
             include_once ATBDP_INC_DIR . 'review/class-bc-review-rating.php';
-            self::$instance->review = new ATBDP_Review_Rating();
 
             //activate rewrite api
             new ATBDP_Rewrite();
@@ -297,18 +316,30 @@ final class Directorist_Base {
             }
 
             // init offline gateway
-            new ATBDP_Offline_Gateway();
+            if ( $request->is_admin_screen() ) {
+                new ATBDP_Offline_Gateway();
+            }
             // Init Cron jobs to run some periodic tasks
             new ATBDP_Cron();
             // add upgrade feature
-            new ATBDP_Upgrade();
+            if ( $request->is_admin_screen() ) {
+                new ATBDP_Upgrade();
+            }
             // add uninstall menu
             add_filter( 'atbdp_settings_menus', [self::$instance, 'add_uninstall_menu'] );
             add_filter( 'display_post_states', [self::$instance, 'add_page_states'], 10, 2 );
             self::init_hooks();
 
             // Initialize appsero tracking
-            self::$instance->init_appsero();
+            $appsero_ajax_action = dirname( plugin_basename( __FILE__ ) ) . '_submit-uninstall-reason';
+            if ( $request->is_admin_screen()
+                || $request->is_cron()
+                || $request->is_cli()
+                || Directorist_Setup_Wizard::handles_ajax_action( $request->ajax_action() )
+                || ( $request->is_ajax() && $appsero_ajax_action === $request->ajax_action() )
+            ) {
+                self::$instance->init_appsero();
+            }
 
             // Register blocks
             self::$instance->init_blocks();
@@ -418,7 +449,12 @@ final class Directorist_Base {
     private function includes() {
         $this->autoload( ATBDP_INC_DIR . 'helpers/' );
         $this->autoload( ATBDP_INC_DIR . 'asset-loader/' );
-        $this->autoload( ATBDP_INC_DIR . 'widgets/' );
+        self::require_files(
+            [
+                ATBDP_INC_DIR . 'widgets/lib-widget-fields',
+                ATBDP_INC_DIR . 'widgets/init',
+            ]
+        );
 
         self::require_files( [ ATBDP_DIR . 'utils/index' ] );
 
@@ -517,6 +553,88 @@ final class Directorist_Base {
     public function __wakeup() {
         // Unserializing instances of the class is forbidden.
 		_doing_it_wrong( __FUNCTION__, __( 'Cheatin&#8217; huh?', 'directorist' ), '1.0'); // @codingStandardsIgnoreLine.
+    }
+
+    public function &__get( $name ) {
+        if ( in_array( $name, $this->get_lazy_service_names(), true ) ) {
+            $this->get_lazy_service( $name );
+            return $this->{$name};
+        }
+
+        if ( ! array_key_exists( $name, $this->runtime_properties ) ) {
+            $this->runtime_properties[ $name ] = null;
+        }
+
+        return $this->runtime_properties[ $name ];
+    }
+
+    public function __set( $name, $value ) {
+        if ( in_array( $name, $this->get_lazy_service_names(), true ) ) {
+            $this->{$name} = $value;
+            return;
+        }
+
+        $this->runtime_properties[ $name ] = $value;
+    }
+
+    public function __isset( $name ) {
+        if ( in_array( $name, $this->get_lazy_service_names(), true ) ) {
+            return null !== $this->get_lazy_service( $name );
+        }
+
+        return isset( $this->runtime_properties[ $name ] );
+    }
+
+    public function __unset( $name ) {
+        if ( in_array( $name, $this->get_lazy_service_names(), true ) ) {
+            $this->{$name} = null;
+            return;
+        }
+
+        unset( $this->runtime_properties[ $name ] );
+    }
+
+    private function get_lazy_service_names() {
+        return [ 'ajax_handler', 'background_image_process', 'formgent', 'gateway', 'insights', 'metabox', 'review', 'tools' ];
+    }
+
+    private function get_lazy_service( $name ) {
+        if ( ! in_array( $name, $this->get_lazy_service_names(), true ) ) {
+            return null;
+        }
+
+        if ( null !== $this->{$name} ) {
+            return $this->{$name};
+        }
+
+        switch ( $name ) {
+            case 'ajax_handler':
+                $this->ajax_handler = new ATBDP_Ajax_Handler();
+                break;
+            case 'background_image_process':
+                $this->background_image_process = new \Directorist\Background_Image_Process();
+                break;
+            case 'formgent':
+                $this->formgent = new ATBDP_Formgent();
+                break;
+            case 'gateway':
+                $this->gateway = new ATBDP_Gateway();
+                break;
+            case 'insights':
+                $this->init_appsero();
+                break;
+            case 'metabox':
+                $this->metabox = new ATBDP_Metabox();
+                break;
+            case 'review':
+                $this->review = new ATBDP_Review_Rating();
+                break;
+            case 'tools':
+                $this->tools = new ATBDP_Tools();
+                break;
+        }
+
+        return $this->{$name};
     }
 
     /**

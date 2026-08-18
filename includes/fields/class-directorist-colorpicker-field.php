@@ -29,4 +29,4 @@ class Color_Picker_Field extends Base_Field {
     }
 }
 
-Fields::register( new Color_Picker_Field() );
+Fields::register_class( 'color_picker', Color_Picker_Field::class );

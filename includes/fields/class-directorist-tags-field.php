@@ -21,4 +21,4 @@ class Tags_Field extends Taxonomy_Field {
     }
 }
 
-Fields::register( new Tags_Field() );
+Fields::register_class( 'tags', Tags_Field::class );

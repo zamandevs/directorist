@@ -12,6 +12,11 @@ class ATBDP_Metabox {
     const REJECTION_HISTORY_META_KEY = '_listing_rejection_history';
 
     /**
+     * AJAX action owned by the listing metabox.
+     */
+    const AJAX_ACTION = 'atbdp_dynamic_admin_listing_form';
+
+    /**
      * Add meta boxes for ATBDP_POST_TYPE and ATBDP_SHORT_CODE_POST_TYPE
      * and Save the meta data
      */
@@ -25,6 +30,16 @@ class ATBDP_Metabox {
             // load dynamic fields
             add_action( 'wp_ajax_atbdp_dynamic_admin_listing_form', [ $this, 'atbdp_dynamic_admin_listing_form' ] );
         }
+    }
+
+    /**
+     * Whether the metabox handles an AJAX action.
+     *
+     * @param string $action AJAX action.
+     * @return bool
+     */
+    public static function handles_ajax_action( $action ) {
+        return self::AJAX_ACTION === $action;
     }
 
     public function atbdp_dynamic_admin_listing_form() {
