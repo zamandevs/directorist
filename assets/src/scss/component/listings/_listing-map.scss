@@ -297,6 +297,13 @@
 				&.star-empty:after {
 					background-color: #d1d1d1;
 				}
+				&.directorist-icon--font {
+					color: var(--directorist-color-warning);
+
+					&.star-empty {
+						color: #d1d1d1;
+					}
+				}
 			}
 			.directorist-rating-avg {
 				font-size: 14px;

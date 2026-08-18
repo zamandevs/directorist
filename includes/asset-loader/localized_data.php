@@ -10,17 +10,78 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 use Directorist\Helper;
 
 class Localized_Data {
+    protected static $frontend_data_loaded = false;
+
+    protected static $formgent_data_loaded = false;
+
+    protected static $admin_data_loaded    = false;
+
     public static function load_localized_data() {
-        // Load in frontend and backend
-        wp_localize_script( 'jquery', 'directorist', self::public_data() );
-
-        // Load formgent integration data for frontend
-        wp_localize_script( 'directorist-formgent-integration', 'directoristFormgentData', self::formgent_data() );
-
-        // Load in backend only
         if ( is_admin() ) {
-            wp_localize_script( 'jquery', 'directorist_admin', self::admin_data() );
+            self::ensure_frontend_data();
+            self::ensure_formgent_data();
+            self::ensure_admin_data();
+            return;
         }
+
+        if ( ! Asset_Manager::is_frontend_request() ) {
+            return;
+        }
+
+        self::ensure_frontend_data();
+
+        if ( wp_script_is( 'directorist-formgent-integration', 'enqueued' ) ) {
+            self::ensure_formgent_data();
+        }
+    }
+
+    /**
+     * Add the shared frontend data only when a renderer/request needs it.
+     *
+     * @return void
+     */
+    public static function ensure_frontend_data( $handle = 'jquery' ) {
+        if ( self::$frontend_data_loaded ) {
+            return;
+        }
+
+        if ( ! $handle || ! wp_script_is( $handle, 'registered' ) || wp_script_is( $handle, 'done' ) ) {
+            return;
+        }
+
+        self::$frontend_data_loaded = wp_localize_script( $handle, 'directorist', self::public_data() );
+    }
+
+    /**
+     * Add FormGent data only when its integration bundle is required.
+     *
+     * @return void
+     */
+    public static function ensure_formgent_data() {
+        if ( self::$formgent_data_loaded ) {
+            return;
+        }
+
+        self::$formgent_data_loaded = wp_localize_script( 'directorist-formgent-integration', 'directoristFormgentData', self::formgent_data() );
+    }
+
+    /**
+     * Reset request-local localization state. Intended for tests.
+     *
+     * @return void
+     */
+    public static function reset() {
+        self::$frontend_data_loaded = false;
+        self::$formgent_data_loaded = false;
+        self::$admin_data_loaded    = false;
+    }
+
+    protected static function ensure_admin_data() {
+        if ( self::$admin_data_loaded ) {
+            return;
+        }
+
+        self::$admin_data_loaded = wp_localize_script( 'jquery', 'directorist_admin', self::admin_data() );
     }
 
     public static function public_data() {
@@ -134,6 +195,9 @@ class Localized_Data {
             'lazy_load_taxonomy_fields'       => false,
             'current_page_id'                 => get_the_ID(),
             'icon_markup'                     => '<i class="directorist-icon-mask ##CLASS##" aria-hidden="true" style="--directorist-icon: url(##URL##)"></i>',
+            'icon_class_markup'               => '<i class="directorist-icon-mask directorist-icon--font ##CLASS##" aria-hidden="true"></i>',
+            'icon_url_markup'                 => '<i class="directorist-icon-mask ##CLASS##" aria-hidden="true" style="--directorist-icon: url(##URL##)"></i>',
+            'icon_render_mode'                => \Directorist\Icon_Manager::render_mode(),
             'search_form_default_label'       => __( 'Label', 'directorist' ),
             'search_form_default_placeholder' => __( 'Placeholder', 'directorist' ),
             'add_listing_url'                 => \ATBDP_Permalink::get_add_listing_page_link(),

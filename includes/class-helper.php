@@ -786,13 +786,6 @@ class Helper {
 			return '';
 		}
 
-		$icon_src = self::get_icon_src( $icon );
-
-		if ( empty( $icon_src ) ) {
-			return '';
-		}
-
-		$style = sprintf( '--directorist-icon:url(%1$s);', esc_url( $icon_src ) );
 		$color = '';
 
 		if ( ! empty( $badge['style']['text'] ) ) {
@@ -800,6 +793,30 @@ class Helper {
 		} elseif ( ! empty( $badge['badge_icon_color'] ) ) {
 			$color = sanitize_hex_color( $badge['badge_icon_color'] );
 		}
+
+		$icon_class = Icon_Manager::get_icon_classes( $icon );
+
+		if ( $icon_class ) {
+			$classes = trim( 'directorist-icon-mask directorist-icon--font ' . $icon_class . ' directorist-badge-icon-mask' );
+
+			if ( $color ) {
+				return sprintf(
+					'<i class="%1$s" aria-hidden="true" style="color:%2$s"></i>',
+					esc_attr( $classes ),
+					esc_attr( $color )
+				);
+			}
+
+			return sprintf( '<i class="%1$s" aria-hidden="true"></i>', esc_attr( $classes ) );
+		}
+
+		$icon_src = self::get_icon_src( $icon );
+
+		if ( empty( $icon_src ) ) {
+			return '';
+		}
+
+		$style = sprintf( '--directorist-icon:url(%1$s);', esc_url( $icon_src ) );
 
 		if ( $color ) {
 			$style .= sprintf( '--directorist-badge-icon-color:%1$s;color:%1$s;', esc_attr( $color ) );
@@ -1092,6 +1109,10 @@ class Helper {
     private static function badge_icon_is_supported( $icon ) {
         if ( empty( $icon ) ) {
             return false;
+        }
+
+        if ( Icon_Manager::get_icon_classes( $icon ) ) {
+            return true;
         }
 
         $icon_src = self::get_icon_src( $icon );

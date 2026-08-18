@@ -1,4 +1,6 @@
 /* Single listing google map */
+import { renderDirectoristIcon } from './../../../lib/helper';
+
 var $ = jQuery;
 
 // Single Listing Map Initialize
@@ -17,7 +19,11 @@ export function initSingleMap() {
 		document
 			.querySelectorAll('.directorist-single-map')
 			.forEach((mapElm) => {
-				const searchIcon = `<i class="directorist-icon-mask" aria-hidden="true" style="--directorist-icon: url('${directorist.assets_url}icons/font-awesome/svgs/solid/map-marker-alt.svg')"></i>`;
+				const searchIcon = renderDirectoristIcon(
+					'fas fa-map-marker-alt',
+					'',
+					'icons/font-awesome/svgs/solid/map-marker-alt.svg'
+				);
 				const markerShape = document.createElement('div');
 				markerShape.className = 'atbd_map_shape';
 				markerShape.innerHTML = searchIcon;
