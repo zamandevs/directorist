@@ -12,6 +12,11 @@ use Directorist\Multi_Directory\Multi_Directory_Manager;
  */
 class Directorist_Setup_Wizard {
     /**
+     * AJAX action owned by the setup wizard.
+     */
+    const AJAX_ACTION = 'directorist_setup_wizard';
+
+    /**
      * Current step
      * @var string
      */
@@ -32,6 +37,16 @@ class Directorist_Setup_Wizard {
         add_action( 'admin_notices', [ $this, 'render_run_admin_setup_wizard_notice' ] );
         add_action( 'wp_ajax_directorist_setup_wizard', [ $this, 'directorist_setup_wizard' ] );
         add_action( 'wp_loaded', [ $this, 'hide_notices' ] );
+    }
+
+    /**
+     * Whether the setup wizard handles an AJAX action.
+     *
+     * @param string $action AJAX action.
+     * @return bool
+     */
+    public static function handles_ajax_action( $action ) {
+        return self::AJAX_ACTION === $action;
     }
 
     public function directorist_setup_wizard() {
@@ -1132,4 +1147,3 @@ class Directorist_Setup_Wizard {
         <?php
     }
 }
-new Directorist_Setup_Wizard();

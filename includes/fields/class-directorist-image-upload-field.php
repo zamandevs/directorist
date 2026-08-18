@@ -142,4 +142,4 @@ class Image_Upload_Field extends Base_Field {
     }
 }
 
-Fields::register( new Image_Upload_Field() );
+Fields::register_class( 'image_upload', Image_Upload_Field::class );

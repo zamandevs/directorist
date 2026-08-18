@@ -17,4 +17,4 @@ class View_Count_Field extends Number_Field {
     }
 }
 
-Fields::register( new View_Count_Field() );
+Fields::register_class( 'view_count', View_Count_Field::class );

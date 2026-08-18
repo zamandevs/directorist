@@ -16,10 +16,6 @@ if ( ! defined( 'ABSPATH' ) ) {
     die( 'Direct access is not allowed.' );
 }
 
-if ( ! is_admin() ) {
-    return;
-}
-
 use Directorist\Core\API;
 
 if ( ! class_exists( 'ATBDP_Extensions' ) ) {
@@ -38,7 +34,55 @@ if ( ! class_exists( 'ATBDP_Extensions' ) ) {
 
         public $required_extensions = [];
 
-        public function __construct() {
+        /**
+         * AJAX action selected for isolated registration.
+         *
+         * @var string
+         */
+        private $ajax_action = '';
+
+        /**
+         * Return AJAX actions owned by the extensions screen.
+         *
+         * @return array<string, string>
+         */
+        public static function get_ajax_actions() {
+            return [
+                'atbdp_authenticate_the_customer'        => 'authenticate_the_customer',
+                'atbdp_download_file'                    => 'handle_file_download_request',
+                'atbdp_install_file_from_subscriptions'  => 'handle_file_install_request_from_subscriptions',
+                'atbdp_plugins_bulk_action'              => 'plugins_bulk_action',
+                'atbdp_activate_theme'                   => 'activate_theme',
+                'atbdp_activate_plugin'                  => 'activate_plugin',
+                'atbdp_update_plugins'                   => 'handle_plugins_update_request',
+                'atbdp_update_theme'                     => 'handle_theme_update_request',
+                'atbdp_refresh_purchase_status'          => 'handle_refresh_purchase_status_request',
+                'atbdp_close_subscriptions_sassion'      => 'handle_close_subscriptions_sassion_request',
+            ];
+        }
+
+        /**
+         * Whether the extensions screen handles an AJAX action.
+         *
+         * @param string $action AJAX action.
+         * @return bool
+         */
+        public static function handles_ajax_action( $action ) {
+            return isset( self::get_ajax_actions()[ $action ] );
+        }
+
+        /**
+         * Initialize the extensions screen service.
+         *
+         * @param string $ajax_action Optional action to register in isolation.
+         */
+        public function __construct( $ajax_action = '' ) {
+            if ( ! is_admin() ) {
+                return;
+            }
+
+            $this->ajax_action = sanitize_key( $ajax_action );
+
             add_action( 'admin_menu', [ $this, 'admin_menu' ], 100 );
             add_action( 'admin_init', [ $this, 'setup_ajax_actions' ] );
             add_action( 'admin_head', [ $this, 'add_menu_separator_classes' ] );
@@ -53,17 +97,13 @@ if ( ! class_exists( 'ATBDP_Extensions' ) ) {
                 return;
             }
 
-            // Ajax
-            add_action( 'wp_ajax_atbdp_authenticate_the_customer', [ $this, 'authenticate_the_customer' ] );
-            add_action( 'wp_ajax_atbdp_download_file', [ $this, 'handle_file_download_request' ] );
-            add_action( 'wp_ajax_atbdp_install_file_from_subscriptions', [ $this, 'handle_file_install_request_from_subscriptions' ] );
-            add_action( 'wp_ajax_atbdp_plugins_bulk_action', [ $this, 'plugins_bulk_action' ] );
-            add_action( 'wp_ajax_atbdp_activate_theme', [ $this, 'activate_theme' ] );
-            add_action( 'wp_ajax_atbdp_activate_plugin', [ $this, 'activate_plugin' ] );
-            add_action( 'wp_ajax_atbdp_update_plugins', [ $this, 'handle_plugins_update_request' ] );
-            add_action( 'wp_ajax_atbdp_update_theme', [ $this, 'handle_theme_update_request' ] );
-            add_action( 'wp_ajax_atbdp_refresh_purchase_status', [ $this, 'handle_refresh_purchase_status_request' ] );
-            add_action( 'wp_ajax_atbdp_close_subscriptions_sassion', [ $this, 'handle_close_subscriptions_sassion_request' ] );
+            foreach ( self::get_ajax_actions() as $action => $callback ) {
+                if ( $this->ajax_action && $this->ajax_action !== $action ) {
+                    continue;
+                }
+
+                add_action( 'wp_ajax_' . $action, [ $this, $callback ] );
+            }
 
             // add_action( 'wp_ajax_atbdp_download_purchased_items', array($this, 'download_purchased_items') );
         }

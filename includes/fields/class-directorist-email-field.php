@@ -29,4 +29,4 @@ class Email_Field extends Base_Field {
     }
 }
 
-Fields::register( new Email_Field() );
+Fields::register_class( 'email', Email_Field::class );
