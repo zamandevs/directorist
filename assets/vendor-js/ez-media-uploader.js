@@ -8,6 +8,34 @@
 
 /* eslint-disable */
 (function () {
+	function renderIcon(iconClass, iconPath) {
+		var iconData = typeof directorist !== 'undefined' ? directorist : {};
+
+		if (
+			iconData.icon_render_mode !== 'legacy_mask' &&
+			iconData.icon_class_markup
+		) {
+			return iconData.icon_class_markup
+				.replace('##CLASS##', iconClass)
+				.replace('##URL##', '');
+		}
+
+		var iconURL = (iconData.assets_url || '') + iconPath;
+		var iconMarkup = iconData.icon_url_markup || iconData.icon_markup;
+
+		if (iconMarkup) {
+			return iconMarkup
+				.replace('##URL##', iconURL)
+				.replace('##CLASS##', '');
+		}
+
+		return (
+			'<i class="directorist-icon-mask" aria-hidden="true" style="--directorist-icon: url(' +
+			iconURL +
+			')"></i>'
+		);
+	}
+
 	this.EzMediaUploader = function (args) {
 		var defaults = {
 			containerClass: 'directorist-image-upload',
@@ -1242,12 +1270,10 @@
 			'ezmu__icon ezmu-icon-upload',
 			'span'
 		);
-		let uploadIconURL =
-			directorist.assets_url +
-			'icons/font-awesome/svgs/regular/image.svg';
-		let uploadIconHTML = directorist.icon_markup
-			.replace('##URL##', uploadIconURL)
-			.replace('##CLASS##', '');
+		let uploadIconHTML = renderIcon(
+			'far fa-image',
+			'icons/font-awesome/svgs/regular/image.svg'
+		);
 
 		media_picker_icon.innerHTML = uploadIconHTML;
 
@@ -1592,12 +1618,10 @@
 		var thumbnail_list_item_close_btn = document.createElement('span');
 		addClass(thumbnail_list_item_close_btn, 'ezmu__front-item__close-btn');
 
-		let closeIconURL =
-			directorist.assets_url +
-			'icons/font-awesome/svgs/solid/trash-alt.svg';
-		let closeIconHTML = directorist.icon_markup
-			.replace('##URL##', closeIconURL)
-			.replace('##CLASS##', '');
+		let closeIconHTML = renderIcon(
+			'fas fa-trash-alt',
+			'icons/font-awesome/svgs/solid/trash-alt.svg'
+		);
 
 		thumbnail_list_item_close_icon.innerHTML = closeIconHTML;
 

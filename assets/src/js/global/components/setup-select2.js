@@ -1,4 +1,4 @@
-import { convertToSelect2 } from './../../lib/helper';
+import { convertToSelect2, renderDirectoristIcon } from './../../lib/helper';
 import './select2-custom-control';
 
 const $ = jQuery;
@@ -158,7 +158,10 @@ function maybeLazyLoadTaxonomyTermsSelect2(args) {
 				return data.text;
 			}
 
-			// Fetch the data-icon attribute
+			// Fetch class-based icons first; keep data-icon URL as legacy fallback.
+			const iconClass =
+				$(data.element).data('iconClass') ||
+				$(data.element).attr('data-icon-class');
 			const iconURI = $(data.element).attr('data-icon');
 
 			// Get the original text
@@ -172,9 +175,7 @@ function maybeLazyLoadTaxonomyTermsSelect2(args) {
 			originalText = originalText.trim();
 
 			// Construct the icon element
-			const iconElm = iconURI
-				? `<i class="directorist-icon-mask" aria-hidden="true" style="--directorist-icon: url('${iconURI}')"></i>`
-				: '';
+			const iconElm = renderDirectoristIcon(iconClass, '', iconURI);
 
 			// Prepare the combined text (icon + text)
 			const combinedText = iconElm + originalText;

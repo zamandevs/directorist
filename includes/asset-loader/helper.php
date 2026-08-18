@@ -97,10 +97,58 @@ class Helper {
             return $script['ext'];
         }
 
-        $rtl = ( ! empty( $script['rtl'] ) && is_rtl() ) ? '.rtl' : '';
-        $ext = $script['type'] == 'css' ? '.css' : '.js';
-        $url = $script['path'] . $rtl . $ext;
-        return $url;
+        return self::asset_file_url( $script['path'], $script['type'], ! empty( $script['rtl'] ) );
+    }
+
+    /**
+     * Build a local asset URL, preferring minified files when debugging is disabled.
+     *
+     * @param string $path Base asset URL without extension.
+     * @param string $type Asset type, css or js.
+     * @param bool   $rtl  Whether an RTL variant may be used.
+     *
+     * @return string
+     */
+    public static function asset_file_url( $path, $type, $rtl = false ) {
+        $rtl_suffix = ( 'css' === $type && $rtl && is_rtl() ) ? '.rtl' : '';
+        $extension  = 'css' === $type ? '.css' : '.js';
+        $url        = $path . $rtl_suffix . $extension;
+
+        if ( ! self::should_load_min_file() ) {
+            return $url;
+        }
+
+        $min_url = $path . $rtl_suffix . '.min' . $extension;
+
+        return self::asset_file_exists( $min_url ) ? $min_url : $url;
+    }
+
+    /**
+     * Determine whether minified local assets should be used.
+     *
+     * @return bool
+     */
+    protected static function should_load_min_file() {
+        $load_min_files = defined( 'DIRECTORIST_LOAD_MIN_FILES' ) ? DIRECTORIST_LOAD_MIN_FILES : true;
+
+        return $load_min_files && ! self::debug_enabled();
+    }
+
+    /**
+     * Check if a plugin asset URL maps to an existing local file.
+     *
+     * @param string $url Asset URL.
+     *
+     * @return bool
+     */
+    protected static function asset_file_exists( $url ) {
+        if ( 0 !== strpos( $url, ATBDP_URL ) ) {
+            return false;
+        }
+
+        $path = ATBDP_DIR . ltrim( substr( $url, strlen( ATBDP_URL ) ), '/' );
+
+        return file_exists( $path );
     }
 
     /**
