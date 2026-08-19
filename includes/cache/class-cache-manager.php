@@ -30,6 +30,9 @@ final class Cache_Manager {
     /** @var Invalidation_Subscriber|null */
     private $invalidation_subscriber;
 
+    /** @var Response_Capture|null */
+    private $response_capture;
+
     /**
      * @param Cache_Provider|null $provider Initial provider.
      */
@@ -237,5 +240,31 @@ final class Cache_Manager {
         $this->dependency_collector = null;
         $this->route_identity       = null;
         $this->private_reason       = '';
+    }
+
+    /** @return array */
+    public function begin_response_capture() {
+        if ( ! $this->response_capture instanceof Response_Capture ) {
+            $this->response_capture = new Response_Capture( $this );
+        }
+
+        return $this->response_capture->begin();
+    }
+
+    /** @return array */
+    public function finish_response_capture() {
+        if ( ! $this->response_capture instanceof Response_Capture ) {
+            return [
+                'eligible'     => false,
+                'reason'       => 'capture_not_started',
+                'detail'       => '',
+                'site_id'      => 0,
+                'route_type'   => '',
+                'cache_key'    => '',
+                'dependencies' => [],
+            ];
+        }
+
+        return $this->response_capture->finish();
     }
 }

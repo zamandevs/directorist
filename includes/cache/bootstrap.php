@@ -19,6 +19,7 @@ namespace Directorist\Cache {
                 'Directorist\\Cache\\Query_Normalizer'           => 'class-query-normalizer.php',
                 'Directorist\\Cache\\Route_Identity'             => 'class-route-identity.php',
                 'Directorist\\Cache\\Route_Resolver'             => 'class-route-resolver.php',
+                'Directorist\\Cache\\Response_Capture'           => 'class-response-capture.php',
             ];
 
             static $mutation_class_map = [
@@ -149,6 +150,30 @@ namespace {
          */
         function directorist_page_cache_record_change( $extension, $identifier = '', array $context = [] ) {
             return directorist_page_cache()->record_extension_change( $extension, $identifier, $context );
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_begin_response_capture' ) ) {
+        /**
+         * Begin explicit dependency collection before a public renderer runs.
+         *
+         * This API is inert until a cache-provider integration calls it.
+         *
+         * @return array Normalized eligibility descriptor.
+         */
+        function directorist_page_cache_begin_response_capture() {
+            return directorist_page_cache()->begin_response_capture();
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_finish_response_capture' ) ) {
+        /**
+         * Finalize one explicitly started response after rendering.
+         *
+         * @return array Normalized final response descriptor.
+         */
+        function directorist_page_cache_finish_response_capture() {
+            return directorist_page_cache()->finish_response_capture();
         }
     }
 
