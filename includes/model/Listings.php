@@ -543,6 +543,16 @@ class Directorist_Listings {
         $archive_fields = directorist_listing_archive_fields( $listing_type, [ 'author_id' => $author_id, ] );
 
         $this->loop = array_merge( $this->loop, $archive_fields );
+
+        $term_ids = [];
+
+        foreach ( [ $this->loop['cats'], $this->loop['locs'] ] as $terms ) {
+            if ( is_array( $terms ) ) {
+                $term_ids = array_merge( $term_ids, wp_list_pluck( $terms, 'term_id' ) );
+            }
+        }
+
+        directorist_page_cache_add_listing_dependencies( $id, $author_id, [ $listing_type ], $term_ids );
     }
 
     public function get_review_data() {

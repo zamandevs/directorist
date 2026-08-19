@@ -302,6 +302,21 @@ class Directorist_Page_Cache_Request_Policy_Test extends WP_UnitTestCase {
         $this->assertSame( Eligibility_Result::UNSUPPORTED_QUERY, $result->get_reason() );
     }
 
+    public function test_query_parameters_can_pass_only_after_route_normalization() {
+        $result = ( new Request_Policy( true ) )->evaluate(
+            $this->context(
+                [
+                    'route_owned'     => true,
+                    'query_args'      => [ 'q' => 'hotel' ],
+                    'query_supported' => true,
+                ]
+            )
+        );
+
+        $this->assertTrue( $result->is_eligible() );
+        $this->assertSame( Eligibility_Result::ELIGIBLE, $result->get_reason() );
+    }
+
     public function test_request_context_normalizes_method_headers_cookie_names_and_flags() {
         $context = new Request_Context(
             [

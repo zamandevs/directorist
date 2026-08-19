@@ -114,7 +114,7 @@ final class Request_Policy {
             }
         }
 
-        if ( ! empty( $context->get_query_args() ) ) {
+        if ( ! empty( $context->get_query_args() ) && ! $context->is_query_supported() ) {
             return new Eligibility_Result( false, Eligibility_Result::UNSUPPORTED_QUERY );
         }
 
