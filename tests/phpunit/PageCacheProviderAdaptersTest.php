@@ -1,0 +1,232 @@
+<?php
+/**
+ * Guarded third-party cache adapter tests.
+ */
+
+use Directorist\Cache\Cache_Enabler_Provider;
+use Directorist\Cache\LiteSpeed_Cache_Provider;
+use Directorist\Cache\Provider_Capabilities;
+use Directorist\Cache\WP_Fastest_Cache_Provider;
+use Directorist\Cache\WP_Rocket_Provider;
+use Directorist\Cache\WP_Super_Cache_Provider;
+
+class Directorist_Page_Cache_Provider_Adapters_Test extends WP_UnitTestCase {
+    public function test_wp_super_cache_purges_exact_urls_when_representable() {
+        $calls    = [];
+        $provider = new WP_Super_Cache_Provider(
+            [
+                'delete_url' => static function ( $url ) use ( &$calls ) {
+                    $calls[] = [ 'url', $url ];
+
+                    return true;
+                },
+                'purge_site' => static function () use ( &$calls ) {
+                    $calls[] = [ 'site' ];
+
+                    return true;
+                },
+                'version'    => '3.1.1',
+            ]
+        );
+
+        $result = $provider->invalidate( $this->plan( [ 'https://example.org/directory/one/' ] ) );
+
+        $this->assertTrue( $result['success'] );
+        $this->assertSame( 'purged_urls', $result['code'] );
+        $this->assertSame( [ [ 'url', 'https://example.org/directory/one/' ] ], $calls );
+    }
+
+    public function test_wp_super_cache_query_url_and_generation_degrade_to_site_purge() {
+        $calls    = [];
+        $provider = new WP_Super_Cache_Provider(
+            [
+                'delete_url' => static function ( $url ) use ( &$calls ) {
+                    $calls[] = [ 'url', $url ];
+
+                    return true;
+                },
+                'purge_site' => static function ( $site_id ) use ( &$calls ) {
+                    $calls[] = [ 'site', $site_id ];
+
+                    return true;
+                },
+            ]
+        );
+
+        $query_result = $provider->invalidate( $this->plan( [ 'https://example.org/search/?q=one' ] ) );
+        $gen_result   = $provider->invalidate( $this->plan( [], [ 'directorist:1:collection:listings' ] ) );
+
+        $this->assertSame( 'purged_site', $query_result['code'] );
+        $this->assertSame( 'purged_site', $gen_result['code'] );
+        $this->assertSame( [ [ 'site', 1 ], [ 'site', 1 ] ], $calls );
+    }
+
+    public function test_cache_enabler_batches_exact_urls_and_degrades_generation() {
+        $calls    = [];
+        $provider = new Cache_Enabler_Provider(
+            [
+                'delete_url' => static function ( $url ) use ( &$calls ) {
+                    $calls[] = [ 'url', $url ];
+                },
+                'purge_site' => static function ( $site_id ) use ( &$calls ) {
+                    $calls[] = [ 'site', $site_id ];
+                },
+            ]
+        );
+
+        $exact = $provider->invalidate( $this->plan( [ 'https://example.org/a/', 'https://example.org/b/' ] ) );
+        $broad = $provider->invalidate( $this->plan( [], [ 'directorist:1:settings' ] ) );
+
+        $this->assertSame( 'purged_urls', $exact['code'] );
+        $this->assertSame( 'purged_site', $broad['code'] );
+        $this->assertSame(
+            [
+                [ 'url', 'https://example.org/a/' ],
+                [ 'url', 'https://example.org/b/' ],
+                [ 'site', 1 ],
+            ],
+            $calls
+        );
+    }
+
+    public function test_wp_fastest_cache_advertises_only_proven_site_purge() {
+        $calls    = 0;
+        $provider = new WP_Fastest_Cache_Provider(
+            [
+                'purge_site' => static function () use ( &$calls ) {
+                    ++$calls;
+                },
+                'version'    => '1.5.1',
+            ]
+        );
+
+        $result = $provider->invalidate( $this->plan( [ 'https://example.org/a/' ] ) );
+
+        $this->assertTrue( $provider->supports( Provider_Capabilities::PURGE_SITE ) );
+        $this->assertFalse( $provider->supports( Provider_Capabilities::PURGE_URL ) );
+        $this->assertSame( 'purged_site', $result['code'] );
+        $this->assertSame( 1, $calls );
+    }
+
+    public function test_wp_fastest_cache_disabled_hook_is_unavailable() {
+        $provider = new WP_Fastest_Cache_Provider( [ 'disabled' => true ] );
+
+        $this->assertFalse( $provider->is_available() );
+        $this->assertSame( 'provider_unavailable', $provider->invalidate( $this->plan( [ 'https://example.org/a/' ] ) )['code'] );
+    }
+
+    public function test_installed_but_disabled_cache_engines_are_unavailable() {
+        $operation = static function () {};
+
+        $wpsc          = new WP_Super_Cache_Provider( [ 'delete_url' => $operation, 'enabled' => false ] );
+        $cache_enabler = new Cache_Enabler_Provider( [ 'delete_url' => $operation, 'enabled' => false ] );
+        $wpfc          = new WP_Fastest_Cache_Provider( [ 'purge_site' => $operation, 'enabled' => false ] );
+
+        $this->assertFalse( $wpsc->is_available() );
+        $this->assertFalse( $cache_enabler->is_available() );
+        $this->assertFalse( $wpfc->is_available() );
+    }
+
+    public function test_wp_rocket_uses_batch_api_and_domain_fallback() {
+        $calls    = [];
+        $provider = new WP_Rocket_Provider(
+            [
+                'delete_urls' => static function ( array $urls ) use ( &$calls ) {
+                    $calls[] = [ 'urls', $urls ];
+                },
+                'purge_site'  => static function () use ( &$calls ) {
+                    $calls[] = [ 'site' ];
+                },
+                'version'     => 'test',
+            ]
+        );
+
+        $provider->invalidate( $this->plan( [ 'https://example.org/a/', 'https://example.org/b/' ] ) );
+        $provider->invalidate( $this->plan( [], [ 'directorist:1:template' ] ) );
+
+        $this->assertSame(
+            [
+                [ 'urls', [ 'https://example.org/a/', 'https://example.org/b/' ] ],
+                [ 'site' ],
+            ],
+            $calls
+        );
+    }
+
+    public function test_litespeed_uses_documented_hooks_through_guarded_operations() {
+        $calls    = [];
+        $provider = new LiteSpeed_Cache_Provider(
+            [
+                'delete_url' => static function ( $url ) use ( &$calls ) {
+                    $calls[] = [ 'url', $url ];
+                },
+                'purge_site' => static function () use ( &$calls ) {
+                    $calls[] = [ 'site' ];
+                },
+                'version'    => '7.9',
+                'server'     => true,
+            ]
+        );
+
+        $provider->invalidate( $this->plan( [ 'https://example.org/a/' ] ) );
+        $provider->invalidate( $this->plan( [], [ 'directorist:1:site' ] ) );
+
+        $this->assertSame( [ [ 'url', 'https://example.org/a/' ], [ 'site' ] ], $calls );
+    }
+
+    public function test_operation_failure_and_exception_are_explicit_and_fail_open() {
+        $failed = new Cache_Enabler_Provider(
+            [
+                'delete_url' => static function () {
+                    return false;
+                },
+            ]
+        );
+        $thrown = new WP_Rocket_Provider(
+            [
+                'delete_urls' => static function () {
+                    throw new RuntimeException( 'adapter failure' );
+                },
+            ]
+        );
+
+        $this->assertSame( 'provider_operation_failed', $failed->invalidate( $this->plan( [ 'https://example.org/a/' ] ) )['code'] );
+        $this->assertSame( 'provider_exception', $thrown->invalidate( $this->plan( [ 'https://example.org/a/' ] ) )['code'] );
+    }
+
+    public function test_dependency_only_plan_degrades_to_site_and_empty_plan_is_noop() {
+        $calls    = 0;
+        $provider = new Cache_Enabler_Provider(
+            [
+                'delete_url' => static function () {},
+                'purge_site' => static function () use ( &$calls ) {
+                    ++$calls;
+                },
+            ]
+        );
+
+        $dependency = $provider->invalidate( $this->plan( [], [], [ 'directorist:1:listing:10' ] ) );
+        $empty      = $provider->invalidate( $this->plan() );
+
+        $this->assertSame( 'purged_site', $dependency['code'] );
+        $this->assertSame( 'no_changes', $empty['code'] );
+        $this->assertSame( 1, $calls );
+    }
+
+    public function test_warm_is_explicitly_unsupported_without_a_proven_api() {
+        $provider = new Cache_Enabler_Provider( [ 'delete_url' => static function () {} ] );
+
+        $this->assertSame( 'unsupported_warm', $provider->warm( [ 'https://example.org/a/' ] )['code'] );
+    }
+
+    private function plan( array $urls = [], array $generations = [], array $dependencies = [] ) {
+        return [
+            'site_id'      => 1,
+            'urls'         => $urls,
+            'dependencies' => $dependencies,
+            'generations'  => $generations,
+            'conservative' => false,
+            'reason'       => '',
+        ];
+    }
+}
