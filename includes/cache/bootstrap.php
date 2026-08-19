@@ -14,16 +14,29 @@ namespace Directorist\Cache {
 
             static $route_class_map = [
                 'Directorist\\Cache\\Dependency_Collector'       => 'class-dependency-collector.php',
+                'Directorist\\Cache\\Dependency_Key'             => 'class-dependency-key.php',
                 'Directorist\\Cache\\Query_Normalization_Result' => 'class-query-normalization-result.php',
                 'Directorist\\Cache\\Query_Normalizer'           => 'class-query-normalizer.php',
                 'Directorist\\Cache\\Route_Identity'             => 'class-route-identity.php',
                 'Directorist\\Cache\\Route_Resolver'             => 'class-route-resolver.php',
             ];
 
+            static $mutation_class_map = [
+                'Directorist\\Cache\\Change_Set'               => 'class-change-set.php',
+                'Directorist\\Cache\\Change_Type'              => 'class-change-type.php',
+                'Directorist\\Cache\\Invalidation_Dispatcher'  => 'class-invalidation-dispatcher.php',
+                'Directorist\\Cache\\Invalidation_Plan'        => 'class-invalidation-plan.php',
+                'Directorist\\Cache\\Invalidation_Planner'     => 'class-invalidation-planner.php',
+                'Directorist\\Cache\\Invalidation_Subscriber'  => 'class-invalidation-subscriber.php',
+                'Directorist\\Cache\\Mutation_Entity_Resolver' => 'class-mutation-entity-resolver.php',
+            ];
+
             if ( isset( $class_map[ $class_name ] ) ) {
                 require_once __DIR__ . '/' . $class_map[ $class_name ];
             } elseif ( isset( $route_class_map[ $class_name ] ) ) {
                 require_once __DIR__ . '/' . $route_class_map[ $class_name ];
+            } elseif ( isset( $mutation_class_map[ $class_name ] ) ) {
+                require_once __DIR__ . '/' . $mutation_class_map[ $class_name ];
             }
         }
     );
@@ -101,6 +114,23 @@ namespace {
             }
 
             return true;
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_record_change' ) ) {
+        /**
+         * Declare a completed extension-owned mutation for page-cache invalidation.
+         *
+         * This API is intentionally inert until an available cache provider
+         * enables mutation tracking through the manager.
+         *
+         * @param string $extension Extension slug.
+         * @param string $identifier Mutation identifier.
+         * @param array  $context Mutation context.
+         * @return bool Whether the active change set accepted the mutation.
+         */
+        function directorist_page_cache_record_change( $extension, $identifier = '', array $context = [] ) {
+            return directorist_page_cache()->record_extension_change( $extension, $identifier, $context );
         }
     }
 }

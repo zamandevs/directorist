@@ -67,6 +67,31 @@ final class Route_Resolver {
         $this->query_normalizer = $query_normalizer ?: new Query_Normalizer();
     }
 
+    /** @return string[] */
+    public static function public_page_names() {
+        return [ 'listings', 'results', 'category', 'location', 'tag', 'author', 'categories', 'locations', 'search' ];
+    }
+
+    /**
+     * Return whether content resolves to a public, non-private Directorist renderer.
+     *
+     * @param string $content Post content.
+     * @return bool
+     */
+    public function is_public_content( $content ) {
+        return ! $this->has_private_content( $content ) && $this->has_public_content( $content );
+    }
+
+    /**
+     * Return whether content contains a private Directorist renderer.
+     *
+     * @param string $content Post content.
+     * @return bool
+     */
+    public function contains_private_content( $content ) {
+        return $this->has_private_content( $content );
+    }
+
     /**
      * @param array|null $state Resolved WordPress state, or null for globals.
      * @return Route_Identity|null
