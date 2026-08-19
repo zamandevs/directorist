@@ -78,21 +78,9 @@ final class Dependency_Collector {
             return false;
         }
 
-        $parts = [ 'directorist', (string) $this->site_id, $domain ];
+        $key = Dependency_Key::build( $this->site_id, $domain, $identifier );
 
-        if ( '' !== (string) $identifier ) {
-            foreach ( explode( ':', (string) $identifier ) as $part ) {
-                $part = sanitize_key( $part );
-
-                if ( '' !== $part ) {
-                    $parts[] = $part;
-                }
-            }
-        }
-
-        $key = implode( ':', $parts );
-
-        if ( count( $parts ) < 3 ) {
+        if ( '' === $key ) {
             return false;
         }
 

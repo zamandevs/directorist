@@ -24,6 +24,12 @@ final class Cache_Manager {
     /** @var string */
     private $private_reason = '';
 
+    /** @var Change_Set|null */
+    private $change_set;
+
+    /** @var Invalidation_Subscriber|null */
+    private $invalidation_subscriber;
+
     /**
      * @param Cache_Provider|null $provider Initial provider.
      */
@@ -68,6 +74,93 @@ final class Cache_Manager {
     /** @return Cache_Provider */
     public function get_provider() {
         return $this->provider;
+    }
+
+    /**
+     * Enable mutation tracking for an explicitly selected available provider.
+     *
+     * Provider discovery and priority belong to the provider registry. The
+     * default null provider never calls this method.
+     *
+     * @param Cache_Provider $provider Selected provider.
+     * @return bool
+     */
+    public function enable_invalidation( Cache_Provider $provider ) {
+        if ( ! $provider->is_available() || $provider instanceof Null_Cache_Provider ) {
+            return false;
+        }
+
+        $this->disable_invalidation();
+
+        $this->provider                = $provider;
+        $this->change_set              = new Change_Set( get_current_blog_id() );
+        $dispatcher                    = new Invalidation_Dispatcher( $this->change_set, new Invalidation_Planner(), $provider );
+        $this->invalidation_subscriber = new Invalidation_Subscriber( $this->change_set, $dispatcher );
+        $this->invalidation_subscriber->register();
+
+        return true;
+    }
+
+    /** @return void */
+    public function disable_invalidation() {
+        if ( $this->invalidation_subscriber instanceof Invalidation_Subscriber ) {
+            $this->invalidation_subscriber->unregister();
+        }
+
+        $this->invalidation_subscriber = null;
+        $this->change_set              = null;
+        $this->provider                = new Null_Cache_Provider();
+    }
+
+    /** @return bool */
+    public function is_tracking_mutations() {
+        return $this->change_set instanceof Change_Set;
+    }
+
+    /** @return Change_Set|null */
+    public function get_change_set() {
+        return $this->change_set;
+    }
+
+    /**
+     * Dispatch the active request's coalesced invalidation plan.
+     *
+     * The subscriber also calls this at shutdown. A second call is a no-op
+     * because the dispatcher drains the request-local change set.
+     *
+     * @return array
+     */
+    public function dispatch_invalidation() {
+        if ( ! $this->invalidation_subscriber instanceof Invalidation_Subscriber ) {
+            return [ 'success' => false, 'code' => 'invalidation_disabled' ];
+        }
+
+        return $this->invalidation_subscriber->dispatch();
+    }
+
+    /**
+     * Record an extension-owned semantic mutation while tracking is active.
+     *
+     * @param string $extension Extension slug.
+     * @param string $identifier Mutation identifier.
+     * @param array  $context Mutation context.
+     * @return bool
+     */
+    public function record_extension_change( $extension, $identifier = '', array $context = [] ) {
+        if ( ! $this->is_tracking_mutations() ) {
+            return false;
+        }
+
+        $extension  = sanitize_key( sanitize_title( (string) $extension ) );
+        $identifier = sanitize_key( sanitize_title( (string) $identifier ) );
+
+        if ( '' === $extension ) {
+            return false;
+        }
+
+        $change_id = '' === $identifier ? $extension : $extension . ':' . $identifier;
+
+        return $this->change_set->record( Change_Type::EXTENSION, $change_id, $context );
     }
 
     /**
