@@ -241,6 +241,7 @@ final class Directorist_Base {
             }
 
             Directorist\Asset_Loader\Asset_Loader::init();
+            Directorist\Cache\Cache_Manager::instance()->initialize();
 
             // ATBDP_Listing_Type_Manager
             self::$instance->multi_directory_manager = new Directorist\Multi_Directory\Multi_Directory_Manager();
@@ -447,6 +448,7 @@ final class Directorist_Base {
             [
                 ATBDP_INC_DIR . 'payment-processors/payment',
                 ATBDP_INC_DIR . 'payment-processors/bank-transfer',
+                ATBDP_INC_DIR . 'cache/bootstrap',
                 ATBDP_INC_DIR . 'directorist-core-functions',
                 ATBDP_INC_DIR . 'directorist-directory-functions',
                 ATBDP_INC_DIR . 'class-helper',
