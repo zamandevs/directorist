@@ -26,7 +26,8 @@ class Listing_Index_Query {
     }
 
     public static function prepare_args( array $args ) {
-        $decision = [
+        $original_args = $args;
+        $decision      = [
             'status' => 'disabled',
             'reason' => 'index_not_ready_or_disabled',
         ];
@@ -137,43 +138,45 @@ class Listing_Index_Query {
 
         $plan['orders'] = $order_plan;
 
+        $prepared_args = $args;
+
         if ( $primary_meta_key && isset( $plan['converted']['meta_value'] ) ) {
-            unset( $args['meta_key'] );
+            unset( $prepared_args['meta_key'] );
         }
 
         if ( $plan['geo'] ) {
-            unset( $args['atbdp_geo_query'] );
+            unset( $prepared_args['atbdp_geo_query'] );
         }
 
         $partially_converted = $remaining || ( $geo_requested && ! $plan['geo'] );
 
         if ( $partially_converted ) {
-            $remaining['relation'] = 'AND';
-            $args['meta_query']    = $remaining;
-            $decision['status']    = 'partial';
+            $remaining['relation']       = 'AND';
+            $prepared_args['meta_query'] = $remaining;
+            $decision['status']          = 'partial';
         } else {
-            unset( $args['meta_query'] );
+            unset( $prepared_args['meta_query'] );
             $decision['status'] = 'optimized';
         }
 
         if ( $plan['orders'] ) {
-            $args['orderby'] = 'none';
+            $prepared_args['orderby'] = 'none';
         }
 
-        $plan = apply_filters( 'directorist_listing_index_query_plan', $plan, $args );
+        $plan = apply_filters( 'directorist_listing_index_query_plan', $plan, $prepared_args );
 
-        if ( ! is_array( $plan ) || ( empty( $plan['predicates'] ) && empty( $plan['field_predicates'] ) && empty( $plan['geo'] ) ) ) {
+        if ( ! self::plan_is_executable( $plan ) ) {
             $decision['status'] = 'fallback';
             $decision['reason'] = 'plan_rejected';
-            return self::record_decision( $args, $decision );
+            return self::record_decision( $original_args, $decision );
         }
 
-        $args['directorist_listing_index_plan']       = $plan;
-        $args['directorist_listing_index_generation'] = $directory_id . ':' . $generation;
-        $decision['reason']                           = $partially_converted ? 'supported_clauses_only' : 'all_meta_clauses_supported';
-        $decision['converted']                        = array_keys( $plan['converted'] );
+        $prepared_args['directorist_listing_index_plan']       = $plan;
+        $prepared_args['directorist_listing_index_generation'] = $directory_id . ':' . $generation;
+        $decision['reason']                                    = $partially_converted ? 'supported_clauses_only' : 'all_meta_clauses_supported';
+        $decision['converted']                                 = array_keys( $plan['converted'] );
 
-        return self::record_decision( $args, $decision );
+        return self::record_decision( $prepared_args, $decision );
     }
 
     public static function apply_query_plan( array $clauses, WP_Query $query ) {
@@ -237,6 +240,192 @@ class Listing_Index_Query {
         return self::$last_decision;
     }
 
+    private static function plan_is_executable( $plan ) {
+        if ( ! is_array( $plan ) ) {
+            return false;
+        }
+
+        foreach ( [ 'predicates', 'field_predicates', 'orders', 'converted' ] as $key ) {
+            if ( ! isset( $plan[ $key ] ) || ! is_array( $plan[ $key ] ) ) {
+                return false;
+            }
+        }
+
+        $has_constraint = false;
+
+        foreach ( $plan['predicates'] as $predicate ) {
+            if ( ! self::core_predicate_is_executable( $predicate ) ) {
+                return false;
+            }
+
+            $has_constraint = true;
+        }
+
+        foreach ( $plan['field_predicates'] as $position => $predicate ) {
+            if ( ! self::field_predicate_is_executable( $predicate, 'dlfi' . (int) $position ) ) {
+                return false;
+            }
+
+            $has_constraint = true;
+        }
+
+        $geo = $plan['geo'] ?? null;
+
+        if ( null !== $geo ) {
+            if ( ! self::geo_is_executable( $geo ) ) {
+                return false;
+            }
+
+            $has_constraint = true;
+        }
+
+        foreach ( $plan['orders'] as $order ) {
+            if ( ! is_string( $order ) || '' === trim( $order ) || ( false !== strpos( $order, '__directorist_distance__' ) && null === $geo ) ) {
+                return false;
+            }
+        }
+
+        return $has_constraint;
+    }
+
+    private static function core_predicate_is_executable( $predicate ) {
+        if ( ! is_array( $predicate ) || 'core' !== ( $predicate['source'] ?? '' ) ) {
+            return false;
+        }
+
+        if ( ! self::array_has_keys( $predicate, [ 'meta_key', 'column', 'presence_column', 'compare', 'cast' ] ) ) {
+            return false;
+        }
+
+        $mapping = self::core_meta_mapping( $predicate['meta_key'] );
+
+        if ( ! $mapping || Listing_Index::is_core_meta_ambiguous( $predicate['meta_key'] ) || ! self::operator_supported( $predicate['compare'], $mapping['type'] ) ) {
+            return false;
+        }
+
+        if ( ! is_string( $predicate['cast'] ) || self::query_cast( $predicate['cast'] ) !== $predicate['cast'] ) {
+            return false;
+        }
+
+        $uses_signed_column = ! empty( $mapping['signed_column'] ) && $mapping['signed_column'] === $predicate['column'];
+
+        if ( $mapping['presence_column'] !== $predicate['presence_column'] || ( $mapping['column'] !== $predicate['column'] && ! $uses_signed_column ) ) {
+            return false;
+        }
+
+        if ( 'EXISTS' !== $predicate['compare'] ) {
+            if ( ! self::array_has_keys( $predicate, [ 'value', 'value_type' ] ) || ! self::comparison_value_supported( $predicate['compare'], $predicate['value'] ) ) {
+                return false;
+            }
+
+            if ( $uses_signed_column ) {
+                if ( '' !== $predicate['cast'] || $mapping['type'] !== $predicate['value_type'] ) {
+                    return false;
+                }
+            } elseif ( ! self::core_cast_supported( $mapping, $predicate['cast'] ) || self::value_type_for_cast( $mapping['type'], $predicate['cast'] ) !== $predicate['value_type'] ) {
+                return false;
+            }
+        }
+
+        return '' !== self::predicate_sql( $predicate, 'dli' );
+    }
+
+    private static function field_predicate_is_executable( $predicate, $alias ) {
+        if ( ! is_array( $predicate ) || 'field' !== ( $predicate['source'] ?? '' ) ) {
+            return false;
+        }
+
+        if ( ! self::array_has_keys( $predicate, [ 'match_mode', 'meta_key', 'field_type', 'directory_id', 'generation' ] ) ) {
+            return false;
+        }
+
+        if ( ! is_string( $predicate['meta_key'] ) || '' === $predicate['meta_key'] || 1 > (int) $predicate['directory_id'] || 1 > (int) $predicate['generation'] ) {
+            return false;
+        }
+
+        $directory_id = (int) $predicate['directory_id'];
+        $generation   = (int) $predicate['generation'];
+        $manifest     = Listing_Index_Directory_State::active_manifest( $directory_id );
+
+        if ( $generation !== Listing_Index_Directory_State::query_generation( $directory_id ) || empty( $manifest[ $predicate['meta_key'] ] ) || $manifest[ $predicate['meta_key'] ]['field_type'] !== $predicate['field_type'] ) {
+            return false;
+        }
+
+        if ( 'fulltext' === $predicate['match_mode'] ) {
+            if ( ! in_array( $predicate['field_type'], [ 'text', 'textarea', 'url' ], true ) ) {
+                return false;
+            }
+
+            if ( 'MATCH' !== ( $predicate['compare'] ?? '' ) || ! isset( $predicate['value'] ) || ! is_scalar( $predicate['value'] ) || '' === (string) $predicate['value'] ) {
+                return false;
+            }
+
+            return '' !== self::field_predicate_sql( $predicate, $alias );
+        }
+
+        if ( ! self::array_has_keys( $predicate, [ 'value_type', 'cast', 'compare', 'value' ] ) ) {
+            return false;
+        }
+
+        if ( ! is_string( $predicate['cast'] ) || self::query_cast( $predicate['cast'] ) !== $predicate['cast'] || ! self::comparison_value_supported( $predicate['compare'], $predicate['value'] ) ) {
+            return false;
+        }
+
+        if ( ! self::custom_field_operator_supported( $predicate['compare'], $predicate['field_type'] ) ) {
+            return false;
+        }
+
+        if ( 'string' === $predicate['value_type'] && ! self::indexable_string_values( $predicate['value'] ) ) {
+            return false;
+        }
+
+        $valid_field = false;
+
+        if ( in_array( $predicate['field_type'], [ 'select', 'radio', 'switch', 'time' ], true ) ) {
+            $valid_field = 'comparison' === $predicate['match_mode'] && 'string' === $predicate['value_type'];
+        } elseif ( 'checkbox' === $predicate['field_type'] ) {
+            $valid_field = 'membership' === $predicate['match_mode'] && 'string' === $predicate['value_type'];
+        } elseif ( 'number' === $predicate['field_type'] ) {
+            $valid_field = 'comparison' === $predicate['match_mode'] && in_array( $predicate['value_type'], [ 'string', 'number' ], true );
+        } elseif ( 'date' === $predicate['field_type'] ) {
+            $valid_field = 'comparison' === $predicate['match_mode'] && in_array( $predicate['value_type'], [ 'string', 'date', 'datetime' ], true );
+        }
+
+        return $valid_field && '' !== self::field_predicate_sql( $predicate, $alias );
+    }
+
+    private static function geo_is_executable( $geo ) {
+        if ( ! is_array( $geo ) || ! self::array_has_keys( $geo, [ 'latitude', 'longitude', 'min_distance', 'max_distance', 'radius' ] ) ) {
+            return false;
+        }
+
+        foreach ( [ 'latitude', 'longitude', 'min_distance', 'max_distance', 'radius' ] as $key ) {
+            if ( ! is_numeric( $geo[ $key ] ) ) {
+                return false;
+            }
+        }
+
+        if ( 0 >= (float) $geo['radius'] || 0 > (float) $geo['min_distance'] || (float) $geo['max_distance'] < (float) $geo['min_distance'] ) {
+            return false;
+        }
+
+        return (bool) self::geo_sql( $geo );
+    }
+
+    private static function array_has_keys( array $value, array $keys ) {
+        return ! array_diff_key( array_flip( $keys ), $value );
+    }
+
+    private static function indexable_string_values( $value ) {
+        foreach ( is_array( $value ) ? $value : [ $value ] as $item ) {
+            if ( ! is_scalar( $item ) || 191 < strlen( (string) $item ) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private static function convert_meta_clause( $clause, $directory_id ) {
         if ( ! is_array( $clause ) ) {
             return null;
@@ -246,17 +435,28 @@ class Listing_Index_Query {
             return self::convert_custom_field_group( $clause, $directory_id );
         }
 
-        $meta_key = (string) $clause['key'];
-        $compare  = ! empty( $clause['compare'] ) ? strtoupper( $clause['compare'] ) : '=';
-        $value    = isset( $clause['value'] ) ? $clause['value'] : null;
-        $mapping  = self::core_meta_mapping( $meta_key );
-        $cast     = self::query_cast( $clause['type'] ?? '' );
+        $meta_key  = (string) $clause['key'];
+        $has_value = array_key_exists( 'value', $clause );
+        $value     = $has_value ? $clause['value'] : null;
+        $compare   = isset( $clause['compare'] ) ? strtoupper( $clause['compare'] ) : ( $has_value && is_array( $value ) ? 'IN' : '=' );
+        $mapping   = self::core_meta_mapping( $meta_key );
+        $cast      = self::query_cast( $clause['type'] ?? '' );
+
+        if ( ! $has_value ) {
+            $compare = 'EXISTS';
+        } elseif ( 'EXISTS' === $compare ) {
+            $compare = '=';
+        }
 
         if ( $mapping && Listing_Index::is_core_meta_ambiguous( $meta_key ) ) {
             return null;
         }
 
         if ( $mapping && self::operator_supported( $compare, $mapping['type'] ) ) {
+            if ( ! self::comparison_value_supported( $compare, $value ) ) {
+                return null;
+            }
+
             if ( 'EXISTS' !== $compare && ! self::core_cast_supported( $mapping, $cast ) ) {
                 return null;
             }
@@ -327,6 +527,10 @@ class Listing_Index_Query {
                 'generation'   => $generation,
             ];
         } elseif ( in_array( $field_type, [ 'checkbox', 'text', 'textarea', 'url' ], true ) ) {
+            return null;
+        }
+
+        if ( ! self::comparison_value_supported( $compare, $value ) ) {
             return null;
         }
 
@@ -463,6 +667,32 @@ class Listing_Index_Query {
         }
 
         return false;
+    }
+
+    private static function comparison_value_supported( $compare, $value ) {
+        if ( 'EXISTS' === $compare ) {
+            return true;
+        }
+
+        if ( 'IN' === $compare ) {
+            if ( ! is_array( $value ) || ! $value ) {
+                return false;
+            }
+
+            foreach ( $value as $item ) {
+                if ( ! is_scalar( $item ) ) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        if ( 'BETWEEN' === $compare ) {
+            return is_array( $value ) && 2 === count( $value ) && is_scalar( $value[0] ) && is_scalar( $value[1] );
+        }
+
+        return is_scalar( $value );
     }
 
     private static function convert_custom_field_group( array $group, $directory_id ) {

@@ -884,6 +884,188 @@ class Directorist_Listing_Index_Query_Test extends WP_UnitTestCase {
         $this->assertSame( 'no_supported_predicates', $decision['reason'] );
     }
 
+    public function test_array_value_without_compare_preserves_wordpress_in_semantics() {
+        $args = [
+            'meta_query' => [
+                [
+                    'key'   => '_price',
+                    'value' => [ 100, 200 ],
+                    'type'  => 'NUMERIC',
+                ],
+            ],
+            'orderby'    => 'title',
+            'order'      => 'ASC',
+        ];
+
+        $legacy = $this->legacy_query( $args );
+        $lookup = $this->lookup_query( $args );
+
+        $this->assert_results_same( $legacy, $lookup );
+        $this->assertSame( [ $this->listing_ids['alpha'], $this->listing_ids['beta'] ], $lookup->ids );
+        $this->assertSame( 'optimized', Listing_Index_Query::get_last_decision()['status'] );
+    }
+
+    public function test_meta_clause_without_value_preserves_wordpress_exists_semantics() {
+        $args = [
+            'meta_query' => [
+                [
+                    'key' => '_featured',
+                ],
+            ],
+            'orderby'    => 'title',
+            'order'      => 'ASC',
+        ];
+
+        $legacy = $this->legacy_query( $args );
+        $lookup = $this->lookup_query( $args );
+
+        $this->assert_results_same( $legacy, $lookup );
+        $this->assertSame( array_values( $this->listing_ids ), $lookup->ids );
+        $this->assertSame( 'optimized', Listing_Index_Query::get_last_decision()['status'] );
+    }
+
+    public function test_exists_with_value_preserves_wordpress_equality_semantics() {
+        $args = [
+            'meta_query' => [
+                [
+                    'key'     => '_featured',
+                    'value'   => 1,
+                    'compare' => 'EXISTS',
+                ],
+            ],
+            'orderby'    => 'title',
+            'order'      => 'ASC',
+        ];
+
+        $legacy = $this->legacy_query( $args );
+        $lookup = $this->lookup_query( $args );
+
+        $this->assert_results_same( $legacy, $lookup );
+        $this->assertSame( [ $this->listing_ids['alpha'], $this->listing_ids['gamma'] ], $lookup->ids );
+        $this->assertSame( 'optimized', Listing_Index_Query::get_last_decision()['status'] );
+    }
+
+    /**
+     * @dataProvider unsupported_comparison_value_provider
+     */
+    public function test_unsupported_comparison_value_shapes_keep_canonical_arguments( $clause ) {
+        $args     = $this->base_args( [ 'meta_query' => [ $clause ] ] );
+        $prepared = Listing_Index_Query::prepare_args( $args );
+        $decision = $prepared['directorist_listing_index_decision'];
+
+        $this->assertSame( $args['meta_query'], $prepared['meta_query'] );
+        $this->assertArrayNotHasKey( 'directorist_listing_index_plan', $prepared );
+        $this->assertSame( 'disabled', $decision['status'] );
+        $this->assertSame( 'no_supported_predicates', $decision['reason'] );
+    }
+
+    public function unsupported_comparison_value_provider() {
+        return [
+            'between scalar'       => [ [ 'key' => '_price', 'value' => '100,200', 'compare' => 'BETWEEN', 'type' => 'NUMERIC' ] ],
+            'between too few'      => [ [ 'key' => '_price', 'value' => [ 100 ], 'compare' => 'BETWEEN', 'type' => 'NUMERIC' ] ],
+            'between too many'     => [ [ 'key' => '_price', 'value' => [ 100, 200, 300 ], 'compare' => 'BETWEEN', 'type' => 'NUMERIC' ] ],
+            'in scalar'            => [ [ 'key' => '_price', 'value' => '100,200', 'compare' => 'IN', 'type' => 'NUMERIC' ] ],
+            'in empty'             => [ [ 'key' => '_price', 'value' => [], 'compare' => 'IN', 'type' => 'NUMERIC' ] ],
+            'in nested value'      => [ [ 'key' => '_price', 'value' => [ [ 100 ], 200 ], 'compare' => 'IN', 'type' => 'NUMERIC' ] ],
+            'scalar operator list' => [ [ 'key' => '_price', 'value' => [ 100 ], 'compare' => '>', 'type' => 'NUMERIC' ] ],
+        ];
+    }
+
+    public function test_unsupported_custom_field_value_shape_remains_canonical_in_partial_plan() {
+        $custom_clause = [
+            'key'     => '_custom-number-1',
+            'value'   => [ 25 ],
+            'compare' => 'BETWEEN',
+            'type'    => 'NUMERIC',
+        ];
+        $args          = $this->base_args(
+            [
+                'meta_query' => [
+                    'relation'       => 'AND',
+                    'directory_type' => $this->directory_clause(),
+                    'custom_number'  => $custom_clause,
+                ],
+            ]
+        );
+        $prepared      = Listing_Index_Query::prepare_args( $args );
+        $decision      = $prepared['directorist_listing_index_decision'];
+
+        $this->assertSame( $custom_clause, $prepared['meta_query']['custom_number'] );
+        $this->assertSame( 'AND', $prepared['meta_query']['relation'] );
+        $this->assertArrayHasKey( 'directorist_listing_index_plan', $prepared );
+        $this->assertSame( 'partial', $decision['status'] );
+        $this->assertSame( 'supported_clauses_only', $decision['reason'] );
+    }
+
+    public function test_rejected_filtered_plan_restores_canonical_query_and_results() {
+        $args = [
+            'meta_query' => [ $this->directory_clause() ],
+            'orderby'    => 'title',
+            'order'      => 'ASC',
+        ];
+
+        $legacy      = $this->legacy_query( $args );
+        $reject_plan = static function() {
+            return false;
+        };
+
+        add_filter( 'directorist_listing_index_query_plan', $reject_plan );
+
+        try {
+            $lookup   = $this->lookup_query( $args );
+            $decision = Listing_Index_Query::get_last_decision();
+
+            $this->assert_results_same( $legacy, $lookup );
+            $this->assertStringContainsString( 'postmeta', $this->captured_sql );
+            $this->assertStringNotContainsString( 'directorist_listing_index dli', $this->captured_sql );
+            $this->assertSame( 'fallback', $decision['status'] );
+            $this->assertSame( 'plan_rejected', $decision['reason'] );
+        } finally {
+            remove_filter( 'directorist_listing_index_query_plan', $reject_plan );
+        }
+    }
+
+    public function test_invalid_filtered_plan_restores_every_destructive_argument() {
+        $args            = $this->base_args(
+            [
+                'meta_key'        => '_price',
+                'meta_query'      => [ $this->directory_clause() ],
+                'atbdp_geo_query' => [
+                    'lat_field'    => '_manual_lat',
+                    'lng_field'    => '_manual_lng',
+                    'latitude'     => 23.8103,
+                    'longitude'    => 90.4125,
+                    'max_distance' => 10,
+                ],
+                'orderby'         => 'meta_value_num',
+                'order'           => 'ASC',
+            ]
+        );
+        $invalidate_plan = static function( $plan ) {
+            $plan['predicates'][0]['compare'] = 'BETWEEN';
+            $plan['predicates'][0]['value']   = [ 1 ];
+
+            return $plan;
+        };
+
+        add_filter( 'directorist_listing_index_query_plan', $invalidate_plan );
+
+        try {
+            $prepared = Listing_Index_Query::prepare_args( $args );
+            $decision = $prepared['directorist_listing_index_decision'];
+
+            $this->assertSame( $args['meta_key'], $prepared['meta_key'] );
+            $this->assertSame( $args['meta_query'], $prepared['meta_query'] );
+            $this->assertSame( $args['atbdp_geo_query'], $prepared['atbdp_geo_query'] );
+            $this->assertSame( $args['orderby'], $prepared['orderby'] );
+            $this->assertArrayNotHasKey( 'directorist_listing_index_plan', $prepared );
+            $this->assertSame( 'fallback', $decision['status'] );
+            $this->assertSame( 'plan_rejected', $decision['reason'] );
+        } finally {
+            remove_filter( 'directorist_listing_index_query_plan', $invalidate_plan );
+        }
+    }
+
     public function test_top_level_or_relation_falls_back_to_legacy_sql() {
         $args = [
             'meta_query' => [
