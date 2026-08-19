@@ -30,6 +30,9 @@ final class Request_Context {
     /** @var string */
     private $route_type;
 
+    /** @var bool */
+    private $query_supported;
+
     /** @var array */
     private $flags;
 
@@ -37,6 +40,8 @@ final class Request_Context {
      * @param array $data Normalized or raw request data.
      */
     public function __construct( array $data = [] ) {
+        $query_supported = ! empty( $data['query_supported'] );
+
         $data = wp_parse_args(
             $data,
             [
@@ -61,6 +66,8 @@ final class Request_Context {
         $this->route_owned    = (bool) $data['route_owned'];
         $this->route_type     = sanitize_key( (string) $data['route_type'] );
         $this->flags          = $this->normalize_flags( $data['flags'] );
+
+        $this->query_supported = $query_supported;
     }
 
     /** @return string */
@@ -106,6 +113,11 @@ final class Request_Context {
     /** @return string */
     public function get_route_type() {
         return $this->route_type;
+    }
+
+    /** @return bool */
+    public function is_query_supported() {
+        return $this->query_supported;
     }
 
     /**
