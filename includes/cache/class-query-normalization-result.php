@@ -50,9 +50,4 @@ final class Query_Normalization_Result {
     public function get_detail() {
         return $this->detail;
     }
-
-    /** @return string */
-    public function get_hash() {
-        return hash( 'sha256', wp_json_encode( $this->args ) );
-    }
 }

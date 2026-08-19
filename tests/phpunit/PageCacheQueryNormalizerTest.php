@@ -30,7 +30,6 @@ class Directorist_Page_Cache_Query_Normalizer_Test extends WP_UnitTestCase {
         $this->assertTrue( $first->is_valid() );
         $this->assertTrue( $second->is_valid() );
         $this->assertSame( $first->get_args(), $second->get_args() );
-        $this->assertSame( $first->get_hash(), $second->get_hash() );
     }
 
     public function test_nested_custom_fields_are_canonicalized_without_losing_values() {
@@ -49,6 +48,21 @@ class Directorist_Page_Cache_Query_Normalizer_Test extends WP_UnitTestCase {
         $this->assertTrue( $result->is_valid() );
         $this->assertSame( [ 'basic', 'premium' ], $result->get_args()['custom_field']['custom-select-2'] );
         $this->assertSame( [ '10', '90' ], $result->get_args()['price'] );
+    }
+
+    public function test_nested_keys_that_collapse_during_normalization_are_rejected() {
+        $result = ( new Query_Normalizer() )->normalize(
+            'search',
+            [
+                'custom_field' => [
+                    'room.type' => 'suite',
+                    'roomtype'  => 'standard',
+                ],
+            ]
+        );
+
+        $this->assertFalse( $result->is_valid() );
+        $this->assertSame( 'invalid_query_value', $result->get_reason() );
     }
 
     public function test_collection_routes_allow_the_query_arguments_directorist_renders() {

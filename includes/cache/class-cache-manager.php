@@ -77,12 +77,17 @@ final class Cache_Manager {
      * @return Dependency_Collector
      */
     public function begin_request( Route_Identity $identity ) {
-        $this->end_request();
+        $this->dependency_collector = null;
         $this->route_identity       = $identity;
         $this->dependency_collector = new Dependency_Collector( $identity->get_site_id() );
         $this->dependency_collector->collect_route( $identity );
 
         return $this->dependency_collector;
+    }
+
+    /** @return Route_Identity|null */
+    public function get_route_identity() {
+        return $this->route_identity;
     }
 
     /** @return bool */

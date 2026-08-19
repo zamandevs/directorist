@@ -409,6 +409,10 @@ final class Route_Resolver {
         $state['raw_query']           = (string) $state['raw_query'];
         $state['is_singular_listing'] = (bool) $state['is_singular_listing'];
 
+        if ( '' === $state['raw_query'] && '' !== (string) $state['request_uri'] ) {
+            $state['raw_query'] = (string) wp_parse_url( $state['request_uri'], PHP_URL_QUERY );
+        }
+
         return $state;
     }
 

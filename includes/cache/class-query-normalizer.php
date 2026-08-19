@@ -160,7 +160,13 @@ final class Query_Normalizer {
                 return null;
             }
 
-            $normalized[ $is_list ? (int) $key : sanitize_key( (string) $key ) ] = $item;
+            $normalized_key = $is_list ? (int) $key : sanitize_key( (string) $key );
+
+            if ( ! $is_list && ( '' === $normalized_key || array_key_exists( $normalized_key, $normalized ) ) ) {
+                return null;
+            }
+
+            $normalized[ $normalized_key ] = $item;
         }
 
         if ( $is_list ) {

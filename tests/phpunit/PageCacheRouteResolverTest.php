@@ -203,6 +203,21 @@ class Directorist_Page_Cache_Route_Resolver_Test extends WP_UnitTestCase {
         $this->assertNull( $identity );
     }
 
+    public function test_raw_query_is_derived_from_request_uri_for_duplicate_detection() {
+        $identity = ( new Route_Resolver() )->resolve(
+            $this->state(
+                [
+                    'page_id'          => 11,
+                    'configured_pages' => [ 'results' => 11 ],
+                    'query_args'       => [ 'sort' => 'date-desc' ],
+                    'request_uri'      => '/search-result/?sort=price-asc&sort=date-desc',
+                ]
+            )
+        );
+
+        $this->assertNull( $identity );
+    }
+
     public function test_author_directory_pretty_route_varies_the_identity() {
         $resolver = new Route_Resolver();
         $base     = [

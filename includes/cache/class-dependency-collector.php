@@ -31,7 +31,7 @@ final class Dependency_Collector {
         $this->add( 'settings' );
         $this->add( 'template' );
 
-        if ( in_array( $route_type, [ 'listings', 'search', 'category', 'location', 'tag', 'author', 'embedded' ], true ) ) {
+        if ( in_array( $route_type, [ 'listings', 'search', 'category', 'location', 'tag', 'author', 'categories', 'locations', 'search-form', 'embedded' ], true ) ) {
             $this->add( 'collection', 'listings' );
         }
 

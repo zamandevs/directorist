@@ -55,6 +55,24 @@ class Directorist_Page_Cache_Dependency_Collector_Test extends WP_UnitTestCase {
         $this->assertContains( 'directorist:1:page:20', $collector->all() );
     }
 
+    /**
+     * @dataProvider taxonomy_index_route_provider
+     */
+    public function test_taxonomy_and_search_form_indexes_depend_on_listing_collection( $route_type ) {
+        $collector = new Dependency_Collector( 1 );
+        $collector->collect_route( new Route_Identity( [ 'route_type' => $route_type, 'object_id' => 20, 'page_id' => 20 ] ) );
+
+        $this->assertContains( 'directorist:1:collection:listings', $collector->all() );
+    }
+
+    public function taxonomy_index_route_provider() {
+        return [
+            'category index' => [ 'categories' ],
+            'location index' => [ 'locations' ],
+            'search form'    => [ 'search-form' ],
+        ];
+    }
+
     public function test_extension_dependencies_are_scoped_and_deduplicated() {
         $collector = new Dependency_Collector( 2 );
 
@@ -105,6 +123,19 @@ class Directorist_Page_Cache_Dependency_Collector_Test extends WP_UnitTestCase {
         $this->assertTrue( directorist_page_cache_mark_private( 'later_reason' ) );
         $this->assertTrue( $manager->is_private() );
         $this->assertSame( 'personalized_booking_state', $manager->get_private_reason() );
+    }
+
+    public function test_private_veto_declared_before_collection_is_not_cleared() {
+        $manager  = Cache_Manager::instance();
+        $identity = new Route_Identity( [ 'site_id' => 1, 'route_type' => 'listing', 'object_id' => 15 ] );
+        $manager->end_request();
+
+        directorist_page_cache_mark_private( 'early_dynamic_output' );
+        $manager->begin_request( $identity );
+
+        $this->assertTrue( $manager->is_private() );
+        $this->assertSame( 'early_dynamic_output', $manager->get_private_reason() );
+        $this->assertSame( $identity, $manager->get_route_identity() );
     }
 
     public function test_request_end_clears_dependencies_and_private_state() {
