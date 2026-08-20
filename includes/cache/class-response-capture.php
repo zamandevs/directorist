@@ -53,9 +53,7 @@ final class Response_Capture {
         $identity = $this->route_resolver->resolve( $state );
 
         if ( ! $identity instanceof Route_Identity ) {
-            $this->begin_result = $this->result( false, Eligibility_Result::UNKNOWN_ROUTE );
-
-            return $this->begin_result;
+            return $this->remember_begin( $this->result( false, Eligibility_Result::UNKNOWN_ROUTE ) );
         }
 
         $request                    = null === $request ? $this->current_request() : $request;
@@ -64,11 +62,13 @@ final class Response_Capture {
         $request['query_supported'] = true;
         $decision                   = $this->request_policy->evaluate( new Request_Context( $request ) );
 
-        $this->begin_result = $this->result(
-            $decision->is_eligible(),
-            $decision->get_reason(),
-            $decision->get_detail(),
-            $identity
+        $this->remember_begin(
+            $this->result(
+                $decision->is_eligible(),
+                $decision->get_reason(),
+                $decision->get_detail(),
+                $identity
+            )
         );
 
         if ( ! $decision->is_eligible() ) {
@@ -92,15 +92,11 @@ final class Response_Capture {
         }
 
         if ( null === $this->begin_result ) {
-            $this->final_result = $this->result( false, 'capture_not_started' );
-
-            return $this->final_result;
+            return $this->remember_final( $this->result( false, 'capture_not_started' ) );
         }
 
         if ( ! $this->active ) {
-            $this->final_result = $this->begin_result;
-
-            return $this->final_result;
+            return $this->remember_final( $this->begin_result );
         }
 
         if ( $this->manager->is_private() ) {
@@ -120,8 +116,31 @@ final class Response_Capture {
 
         $this->manager->end_request();
         $this->active = false;
+        do_action( 'directorist_page_cache_eligibility_decided', $this->final_result, 'finish' );
 
         return $this->final_result;
+    }
+
+    /**
+     * @param array $result Begin descriptor.
+     * @return array
+     */
+    private function remember_begin( array $result ) {
+        $this->begin_result = $result;
+        do_action( 'directorist_page_cache_eligibility_decided', $result, 'begin' );
+
+        return $result;
+    }
+
+    /**
+     * @param array $result Final descriptor.
+     * @return array
+     */
+    private function remember_final( array $result ) {
+        $this->final_result = $result;
+        do_action( 'directorist_page_cache_eligibility_decided', $result, 'finish' );
+
+        return $result;
     }
 
     /** @return array */
