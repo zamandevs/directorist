@@ -16,6 +16,8 @@ class Directorist_Page_Cache_Manager_Test extends WP_UnitTestCase {
         $this->assertFalse( class_exists( 'Directorist\\Cache\\Dropin_Owner_Detector', false ) );
         $this->assertFalse( class_exists( 'Directorist\\Cache\\WP_Super_Cache_Provider', false ) );
         $this->assertFalse( class_exists( 'Directorist\\Cache\\Response_Capture', false ) );
+        $this->assertFalse( class_exists( 'Directorist\\Cache\\Warm_URL_Registry', false ) );
+        $this->assertFalse( class_exists( 'Directorist\\Cache\\Warm_URL_Discovery', false ) );
     }
 
     public function test_plugin_bootstrap_initializes_one_request_scoped_manager() {
