@@ -167,6 +167,10 @@
     overflow-x: auto;
 }
 
+.directorist-performance__table-wrap table {
+    min-width: 680px;
+}
+
 .directorist-performance .button-link-delete {
     min-height: 30px;
     padding: 0 8px;
