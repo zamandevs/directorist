@@ -20,6 +20,8 @@ namespace Directorist\Cache {
                 'Directorist\\Cache\\Route_Identity'             => 'class-route-identity.php',
                 'Directorist\\Cache\\Route_Resolver'             => 'class-route-resolver.php',
                 'Directorist\\Cache\\Response_Capture'           => 'class-response-capture.php',
+                'Directorist\\Cache\\Warm_URL_Discovery'         => 'class-warm-url-discovery.php',
+                'Directorist\\Cache\\Warm_URL_Registry'          => 'class-warm-url-registry.php',
             ];
 
             static $mutation_class_map = [
@@ -209,6 +211,62 @@ namespace {
             $GLOBALS['directorist_page_cache_custom_provider_registered'] = true;
 
             return directorist_page_cache_provider_registry()->register( $provider, $priority );
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_warm_url_registry' ) ) {
+        /**
+         * Return the request-scoped bounded warm URL registry.
+         *
+         * @return Directorist\Cache\Warm_URL_Registry
+         */
+        function directorist_page_cache_warm_url_registry() {
+            static $registry;
+
+            if ( ! $registry instanceof Directorist\Cache\Warm_URL_Registry ) {
+                $registry = new Directorist\Cache\Warm_URL_Registry();
+            }
+
+            return $registry;
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_register_warm_urls' ) ) {
+        /**
+         * Register extension-owned public URLs for the next bounded discovery.
+         *
+         * @param string|string[] $urls Public URLs.
+         * @param string          $source Stable source identifier.
+         * @return int Number of newly accepted URLs.
+         */
+        function directorist_page_cache_register_warm_urls( $urls, $source = 'extension' ) {
+            return directorist_page_cache_warm_url_registry()->add( $urls, $source );
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_discover_warm_urls' ) ) {
+        /**
+         * Discover bounded core and extension public warm URLs on demand.
+         *
+         * @param array $args Bounded discovery limits.
+         * @return string[]
+         */
+        function directorist_page_cache_discover_warm_urls( array $args = [] ) {
+            $discovery = new Directorist\Cache\Warm_URL_Discovery( directorist_page_cache_warm_url_registry() );
+
+            return $discovery->discover( $args );
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_warm_urls' ) ) {
+        /**
+         * Dispatch public URLs to the selected cache provider.
+         *
+         * @param string[] $urls Public URLs.
+         * @return array
+         */
+        function directorist_page_cache_warm_urls( array $urls ) {
+            return directorist_page_cache()->warm( $urls );
         }
     }
 

@@ -142,6 +142,16 @@ final class Cache_Manager {
     }
 
     /**
+     * Dispatch a bounded public URL set to the selected provider.
+     *
+     * @param string[] $urls Public URLs.
+     * @return array
+     */
+    public function warm( array $urls ) {
+        return $this->provider->warm( $urls );
+    }
+
+    /**
      * Record an extension-owned semantic mutation while tracking is active.
      *
      * @param string $extension Extension slug.
