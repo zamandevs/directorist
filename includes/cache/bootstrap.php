@@ -47,6 +47,14 @@ namespace Directorist\Cache {
                 'Directorist\\Cache\\WP_Super_Cache_Provider'   => 'providers/class-wp-super-cache-provider.php',
             ];
 
+            static $performance_class_map = [
+                'Directorist\\Cache\\Performance_Admin'      => 'class-performance-admin.php',
+                'Directorist\\Cache\\Performance_Event_Log'  => 'class-performance-event-log.php',
+                'Directorist\\Cache\\Performance_Operations' => 'class-performance-operations.php',
+                'Directorist\\Cache\\Performance_Settings'   => 'class-performance-settings.php',
+                'Directorist\\Cache\\Performance_Status'     => 'class-performance-status.php',
+            ];
+
             if ( isset( $class_map[ $class_name ] ) ) {
                 require_once __DIR__ . '/' . $class_map[ $class_name ];
             } elseif ( isset( $route_class_map[ $class_name ] ) ) {
@@ -55,6 +63,8 @@ namespace Directorist\Cache {
                 require_once __DIR__ . '/' . $mutation_class_map[ $class_name ];
             } elseif ( isset( $provider_class_map[ $class_name ] ) ) {
                 require_once __DIR__ . '/' . $provider_class_map[ $class_name ];
+            } elseif ( isset( $performance_class_map[ $class_name ] ) ) {
+                require_once __DIR__ . '/' . $performance_class_map[ $class_name ];
             }
         }
     );
@@ -64,6 +74,11 @@ namespace {
     use Directorist\Cache\Cache_Manager;
     use Directorist\Cache\Cache_Provider;
     use Directorist\Cache\Dropin_Owner_Detector;
+    use Directorist\Cache\Performance_Admin;
+    use Directorist\Cache\Performance_Event_Log;
+    use Directorist\Cache\Performance_Operations;
+    use Directorist\Cache\Performance_Settings;
+    use Directorist\Cache\Performance_Status;
     use Directorist\Cache\Provider_Registry;
 
     if ( ! function_exists( 'directorist_page_cache' ) ) {
@@ -285,6 +300,96 @@ namespace {
         }
     }
 
+    if ( ! function_exists( 'directorist_page_cache_performance_settings' ) ) {
+        /** @return Performance_Settings */
+        function directorist_page_cache_performance_settings() {
+            static $settings;
+
+            if ( ! $settings instanceof Performance_Settings ) {
+                $settings = new Performance_Settings();
+            }
+
+            return $settings;
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_is_enabled' ) ) {
+        /** @return bool */
+        function directorist_page_cache_is_enabled() {
+            return directorist_page_cache_performance_settings()->is_enabled();
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_sample_performance_event' ) ) {
+        /**
+         * @param array  $decision Eligibility descriptor.
+         * @param string $phase Capture phase.
+         * @return void
+         */
+        function directorist_page_cache_sample_performance_event( $decision, $phase ) {
+            if ( ! is_array( $decision ) ) {
+                return;
+            }
+
+            if ( 'begin' === $phase && ! empty( $decision['eligible'] ) ) {
+                return;
+            }
+
+            static $events;
+
+            if ( ! $events instanceof Performance_Event_Log ) {
+                $events = new Performance_Event_Log( directorist_page_cache_performance_settings() );
+            }
+
+            $events->maybe_sample( $decision, $phase );
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_record_performance_event' ) ) {
+        /**
+         * Record a bounded operational event for cache providers and integrations.
+         *
+         * @param string $level Event level.
+         * @param string $code Stable event code.
+         * @param array  $context Bounded scalar context.
+         * @return bool
+         */
+        function directorist_page_cache_record_performance_event( $level, $code, array $context = [] ) {
+            static $events;
+
+            if ( ! $events instanceof Performance_Event_Log ) {
+                $events = new Performance_Event_Log( directorist_page_cache_performance_settings() );
+            }
+
+            return $events->record( $level, $code, $context );
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_performance_admin' ) ) {
+        /** @return Performance_Admin */
+        function directorist_page_cache_performance_admin() {
+            static $admin;
+
+            if ( ! $admin instanceof Performance_Admin ) {
+                $settings   = directorist_page_cache_performance_settings();
+                $events     = new Performance_Event_Log( $settings );
+                $provider   = directorist_page_cache()->get_provider();
+                $operations = new Performance_Operations( $provider, $settings, $events );
+                $status     = new Performance_Status( $provider, $settings, $events );
+                $admin      = new Performance_Admin( $operations, $status, $settings );
+            }
+
+            return $admin;
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_boot_performance_admin' ) ) {
+        /** @return void */
+        function directorist_page_cache_boot_performance_admin() {
+            directorist_page_cache_performance_admin()->register();
+        }
+    }
+
     if ( ! function_exists( 'directorist_page_cache_has_provider_signal' ) ) {
         /**
          * Avoid loading the registry on the normal no-provider path.
@@ -318,7 +423,7 @@ namespace {
             $selection = directorist_page_cache_provider_registry()->select();
             $provider  = $selection->get_provider();
 
-            if ( $provider instanceof Cache_Provider ) {
+            if ( directorist_page_cache_is_enabled() && $provider instanceof Cache_Provider ) {
                 directorist_page_cache()->enable_invalidation( $provider );
             }
 
@@ -327,11 +432,16 @@ namespace {
     }
 
     add_action( 'plugins_loaded', 'directorist_page_cache_boot_provider', PHP_INT_MAX );
+    add_action( 'directorist_page_cache_eligibility_decided', 'directorist_page_cache_sample_performance_event', 10, 2 );
 
     if ( is_admin() || ( defined( 'DOING_CRON' ) && DOING_CRON ) || ( defined( 'WP_CLI' ) && WP_CLI ) ) {
         add_action( 'activated_plugin', 'directorist_page_cache_flush_provider_detection', 10, 2 );
         add_action( 'deactivated_plugin', 'directorist_page_cache_flush_provider_detection', 10, 2 );
         add_action( 'deleted_plugin', 'directorist_page_cache_flush_provider_detection', 10, 2 );
         add_action( 'upgrader_process_complete', 'directorist_page_cache_flush_provider_detection', 10, 2 );
+
+        if ( is_admin() ) {
+            add_action( 'plugins_loaded', 'directorist_page_cache_boot_performance_admin', PHP_INT_MAX );
+        }
     }
 }

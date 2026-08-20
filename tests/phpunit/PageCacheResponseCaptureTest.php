@@ -108,6 +108,23 @@ class Directorist_Page_Cache_Response_Capture_Test extends WP_UnitTestCase {
         $this->assertSame( $capture->finish(), $capture->finish() );
     }
 
+    public function test_eligibility_events_are_emitted_once_per_capture_phase() {
+        $phases   = [];
+        $listener = static function ( $result, $phase ) use ( &$phases ) {
+            $phases[] = [ $phase, $result['reason'] ];
+        };
+        add_action( 'directorist_page_cache_eligibility_decided', $listener, 99, 2 );
+
+        $capture = new Response_Capture( Cache_Manager::instance() );
+        $capture->begin( $this->state(), $this->request() );
+        $capture->begin( $this->state(), $this->request() );
+        $capture->finish();
+        $capture->finish();
+
+        remove_action( 'directorist_page_cache_eligibility_decided', $listener, 99 );
+        $this->assertSame( [ [ 'begin', 'eligible' ], [ 'finish', 'eligible' ] ], $phases );
+    }
+
     private function state( array $overrides = [] ) {
         return array_merge(
             [
