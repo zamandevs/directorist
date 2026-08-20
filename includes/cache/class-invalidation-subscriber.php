@@ -184,6 +184,10 @@ final class Invalidation_Subscriber {
         $post = get_post( $post_id );
 
         if ( $this->entities()->is_public_directorist_page( $post ) ) {
+            if ( $this->is_ignored_page_meta( $meta_key ) ) {
+                return;
+            }
+
             $this->record_page_change( $post_id, [], $this->entities()->page( $post ) );
         }
     }
@@ -666,7 +670,7 @@ final class Invalidation_Subscriber {
      * @return bool
      */
     private function is_ignored_listing_meta( $meta_key ) {
-        $ignored = [ '_edit_lock', '_edit_last', '_directorist_imported_by_csv', '_is_migrated' ];
+        $ignored = [ '_edit_lock', '_edit_last', '_directorist_imported_by_csv', '_is_migrated', '_eael_post_view_count' ];
 
         if ( function_exists( 'directorist_get_listing_views_count_meta_key' ) ) {
             $ignored[] = directorist_get_listing_views_count_meta_key();
@@ -679,6 +683,24 @@ final class Invalidation_Subscriber {
          * @param string   $meta_key Current meta key.
          */
         $ignored = apply_filters( 'directorist_page_cache_ignored_listing_meta_keys', $ignored, $meta_key );
+
+        return in_array( $meta_key, (array) $ignored, true );
+    }
+
+    /**
+     * @param string $meta_key Public page meta key.
+     * @return bool
+     */
+    private function is_ignored_page_meta( $meta_key ) {
+        $ignored = [ '_edit_lock', '_edit_last', '_eael_post_view_count' ];
+
+        /**
+         * Filters operational or volatile public-page meta that should not purge page cache.
+         *
+         * @param string[] $ignored Ignored meta keys.
+         * @param string   $meta_key Current meta key.
+         */
+        $ignored = apply_filters( 'directorist_page_cache_ignored_page_meta_keys', $ignored, $meta_key );
 
         return in_array( $meta_key, (array) $ignored, true );
     }
