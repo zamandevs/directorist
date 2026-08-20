@@ -296,6 +296,59 @@ class Directorist_Page_Cache_Invalidation_Subscriber_Test extends WP_UnitTestCas
         $this->assertTrue( $this->changes->is_empty() );
     }
 
+    public function test_essential_addons_view_meta_does_not_invalidate_listing() {
+        $listing = self::factory()->post->create(
+            [ 'post_type' => ATBDP_POST_TYPE, 'post_status' => 'publish' ]
+        );
+
+        $this->changes->reset();
+        update_post_meta( $listing, '_eael_post_view_count', 10 );
+
+        $this->assertTrue( $this->changes->is_empty() );
+    }
+
+    public function test_volatile_page_view_meta_does_not_invalidate_public_directorist_page() {
+        $page_id = self::factory()->post->create(
+            [
+                'post_type'    => 'page',
+                'post_status'  => 'publish',
+                'post_content' => '[directorist_all_listing]',
+            ]
+        );
+
+        $this->changes->reset();
+        update_post_meta( $page_id, '_eael_post_view_count', 10 );
+
+        $this->assertTrue( $this->changes->is_empty() );
+    }
+
+    public function test_public_directorist_page_meta_invalidation_remains_filterable_and_content_aware() {
+        $page_id = self::factory()->post->create(
+            [
+                'post_type'    => 'page',
+                'post_status'  => 'publish',
+                'post_content' => '[directorist_all_listing]',
+            ]
+        );
+        $ignore_custom_key = static function ( $ignored ) {
+            $ignored[] = '_pc10_volatile';
+
+            return $ignored;
+        };
+
+        $this->changes->reset();
+        update_post_meta( $page_id, '_directorist_layout', 'grid' );
+
+        $this->assertNotEmpty( $this->changes->get( Change_Type::PAGE, $page_id ) );
+
+        $this->changes->reset();
+        add_filter( 'directorist_page_cache_ignored_page_meta_keys', $ignore_custom_key );
+        update_post_meta( $page_id, '_pc10_volatile', 1 );
+        remove_filter( 'directorist_page_cache_ignored_page_meta_keys', $ignore_custom_key );
+
+        $this->assertTrue( $this->changes->is_empty() );
+    }
+
     public function test_extension_api_is_inert_until_manager_enables_invalidation() {
         Cache_Manager::instance()->disable_invalidation();
 
