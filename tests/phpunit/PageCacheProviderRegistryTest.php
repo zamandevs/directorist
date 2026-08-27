@@ -129,6 +129,18 @@ class Directorist_Page_Cache_Provider_Registry_Test extends WP_UnitTestCase {
         $this->assertSame( 'dropin_owner_mismatch', $mismatch->select( false )->get_code() );
     }
 
+    public function test_lifecycle_probe_can_inspect_candidates_before_dropin_handoff() {
+        $registry = $this->registry_with_owner( 'directorist-cache' );
+        $provider = new Directorist_Page_Cache_Registry_Test_Provider( 'wp-super-cache' );
+        $registry->register( $provider );
+
+        $selection = $registry->select( false, false );
+
+        $this->assertTrue( $selection->is_selected() );
+        $this->assertSame( $provider, $selection->get_provider() );
+        $this->assertSame( 'directorist-cache', $selection->get_dropin_owner() );
+    }
+
     public function test_unknown_dropin_blocks_automatic_selection() {
         $registry = $this->registry_with_owner( 'unknown' );
         $registry->register( new Directorist_Page_Cache_Registry_Test_Provider( 'cache-a' ) );

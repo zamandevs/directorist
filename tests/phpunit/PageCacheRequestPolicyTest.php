@@ -194,10 +194,15 @@ class Directorist_Page_Cache_Request_Policy_Test extends WP_UnitTestCase {
         return [
             'logged in'           => [ 'wordpress_logged_in_hash' ],
             'secure auth'         => [ 'wordpress_sec_hash' ],
+            'plain auth'          => [ 'wordpress_hash' ],
             'password protected'  => [ 'wp-postpass_hash' ],
             'comment author'      => [ 'comment_author_hash' ],
+            'PHP session'         => [ 'PHPSESSID' ],
             'WooCommerce cart'    => [ 'woocommerce_items_in_cart' ],
             'WooCommerce session' => [ 'wp_woocommerce_session_hash' ],
+            'WooCommerce viewed'  => [ 'woocommerce_recently_viewed' ],
+            'WooCommerce notice'  => [ 'store_notice123' ],
+            'EDD cart'            => [ 'edd_items_in_cart' ],
             'Directorist compare' => [ 'atbdlc__selected_listings_id' ],
         ];
     }
@@ -213,6 +218,77 @@ class Directorist_Page_Cache_Request_Policy_Test extends WP_UnitTestCase {
         );
 
         $this->assertTrue( $result->is_eligible() );
+    }
+
+    public function test_analytics_attribution_and_unknown_cookies_do_not_block_an_eligible_request() {
+        $cookies = [
+            '_ga'                     => 'GA1.1.1.2',
+            '_ga_STREAM'              => 'GS1.1.1',
+            '_gcl_au'                 => 'tracking',
+            'sbjs_session'            => 'pgs=1',
+            'unknown_extension_probe' => 'non-rendering',
+        ];
+
+        foreach ( $cookies as $name => $value ) {
+            $result = ( new Request_Policy( true ) )->evaluate(
+                $this->context(
+                    [
+                        'route_owned' => true,
+                        'cookies'     => [ $name => $value ],
+                    ]
+                )
+            );
+
+            $this->assertTrue( $result->is_eligible(), $name );
+        }
+    }
+
+    public function test_valid_language_variation_is_eligible_and_invalid_variation_is_rejected() {
+        $valid   = ( new Request_Policy( true ) )->evaluate(
+            $this->context(
+                [
+                    'route_owned' => true,
+                    'cookies'     => [ 'wp-wpml_current_language' => 'sv' ],
+                ]
+            )
+        );
+        $invalid = ( new Request_Policy( true ) )->evaluate(
+            $this->context(
+                [
+                    'route_owned' => true,
+                    'cookies'     => [ 'wp-wpml_current_language' => '../../private' ],
+                ]
+            )
+        );
+
+        $this->assertTrue( $valid->is_eligible() );
+        $this->assertFalse( $invalid->is_eligible() );
+        $this->assertSame( Eligibility_Result::INVALID_COOKIE_VARIATION, $invalid->get_reason() );
+        $this->assertSame( 'wp-wpml_current_language', $invalid->get_detail() );
+    }
+
+    public function test_extension_can_declare_a_bounded_cookie_variation() {
+        $callback = static function ( $policy ) {
+            $policy['vary']['directory_currency'] = [
+                'pattern'    => '^[A-Z]{3}$',
+                'max_length' => 3,
+            ];
+
+            return $policy;
+        };
+
+        add_filter( 'directorist_page_cache_cookie_policy', $callback );
+        $valid   = ( new Request_Policy( true ) )->evaluate(
+            $this->context( [ 'route_owned' => true, 'cookies' => [ 'directory_currency' => 'USD' ] ] )
+        );
+        $invalid = ( new Request_Policy( true ) )->evaluate(
+            $this->context( [ 'route_owned' => true, 'cookies' => [ 'directory_currency' => 'invalid' ] ] )
+        );
+        remove_filter( 'directorist_page_cache_cookie_policy', $callback );
+
+        $this->assertTrue( $valid->is_eligible() );
+        $this->assertFalse( $invalid->is_eligible() );
+        $this->assertSame( Eligibility_Result::INVALID_COOKIE_VARIATION, $invalid->get_reason() );
     }
 
     public function test_extension_can_add_a_rejected_cookie_prefix_without_global_state() {
@@ -317,6 +393,29 @@ class Directorist_Page_Cache_Request_Policy_Test extends WP_UnitTestCase {
         $this->assertSame( Eligibility_Result::ELIGIBLE, $result->get_reason() );
     }
 
+    public function test_supported_query_parameters_are_rejected_when_filtered_result_caching_is_disabled() {
+        $result = ( new Request_Policy( true, [], false ) )->evaluate(
+            $this->context(
+                [
+                    'route_owned'     => true,
+                    'query_args'      => [ 'q' => 'hotel' ],
+                    'query_supported' => true,
+                ]
+            )
+        );
+
+        $this->assertFalse( $result->is_eligible() );
+        $this->assertSame( Eligibility_Result::FILTERED_RESULTS_DISABLED, $result->get_reason() );
+    }
+
+    public function test_disabling_filtered_result_caching_does_not_reject_a_queryless_route() {
+        $result = ( new Request_Policy( true, [], false ) )->evaluate(
+            $this->context( [ 'route_owned' => true ] )
+        );
+
+        $this->assertTrue( $result->is_eligible() );
+    }
+
     public function test_request_context_normalizes_method_headers_cookie_names_and_flags() {
         $context = new Request_Context(
             [
@@ -330,6 +429,7 @@ class Directorist_Page_Cache_Request_Policy_Test extends WP_UnitTestCase {
         $this->assertSame( 'GET', $context->get_method() );
         $this->assertSame( 'Basic value', $context->get_header( 'authorization' ) );
         $this->assertSame( [ 'cookie_name' ], $context->get_cookie_names() );
+        $this->assertSame( [ 'cookie_name' => 'cookie-value' ], $context->get_cookies() );
         $this->assertTrue( $context->has_flag( 'ajax' ) );
         $this->assertFalse( $context->has_flag( 'rest' ) );
     }

@@ -33,7 +33,7 @@ class Directorist_Page_Cache_Performance_Event_Log_Test extends WP_UnitTestCase 
             $log->record( 'warning', 'HTTP Failed ' . $index, [ 'url' => '<script>unsafe</script>', 'nested' => [ 'drop' ] ] );
         }
 
-        $events = $log->recent();
+        $events = $log->recent( 1015 );
 
         $this->assertCount( 10, $events );
         $this->assertSame( 1014, $events[0]['time'] );
@@ -56,8 +56,35 @@ class Directorist_Page_Cache_Performance_Event_Log_Test extends WP_UnitTestCase 
         $this->assertFalse( get_option( Performance_Event_Log::OPTION_NAME, false ) );
 
         $settings->update( [ 'sample_rate' => 100 ] );
+        $this->assertFalse( $log->maybe_sample( [ 'eligible' => false, 'reason' => 'cookie_present', 'route_type' => 'listings' ], 'begin' ) );
+
+        $settings->update( [ 'sample_rate' => 100, 'diagnostics_until' => time() + HOUR_IN_SECONDS ] );
         $this->assertTrue( $log->maybe_sample( [ 'eligible' => false, 'reason' => 'cookie_present', 'route_type' => 'listings' ], 'begin' ) );
         $this->assertSame( 'cookie_present', $log->recent()[0]['code'] );
+    }
+
+    public function test_expired_events_are_hidden_and_removed_on_the_next_bounded_write() {
+        $now = 40 * DAY_IN_SECONDS;
+        update_option(
+            Performance_Event_Log::OPTION_NAME,
+            [
+                [ 'time' => 1, 'site_id' => 1, 'level' => 'info', 'code' => 'expired', 'context' => [] ],
+            ],
+            false
+        );
+        $log = new Performance_Event_Log(
+            null,
+            static function () use ( &$now ) {
+                return $now;
+            }
+        );
+
+        $this->assertSame( [], $log->recent( $now ) );
+        $log->record( 'success', 'current' );
+
+        $stored = get_option( Performance_Event_Log::OPTION_NAME, [] );
+        $this->assertCount( 1, $stored );
+        $this->assertSame( 'current', $stored[0]['code'] );
     }
 
     public function test_clear_is_idempotent() {

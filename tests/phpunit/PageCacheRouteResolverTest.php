@@ -104,6 +104,32 @@ class Directorist_Page_Cache_Route_Resolver_Test extends WP_UnitTestCase {
         }
     }
 
+    public function test_private_request_probe_distinguishes_private_directorist_content_from_unknown_pages() {
+        $resolver = new Route_Resolver();
+
+        $this->assertTrue(
+            $resolver->is_private_request(
+                $this->state(
+                    [
+                        'page_id'      => 98,
+                        'post_content' => '[directorist_user_dashboard]',
+                    ]
+                )
+            )
+        );
+        $this->assertTrue(
+            $resolver->is_private_request(
+                $this->state(
+                    [
+                        'page_id'          => 99,
+                        'configured_pages' => [ 'checkout' => 99 ],
+                    ]
+                )
+            )
+        );
+        $this->assertFalse( $resolver->is_private_request( $this->state( [ 'page_id' => 100 ] ) ) );
+    }
+
     /**
      * @dataProvider embedded_public_content_provider
      */
@@ -140,6 +166,26 @@ class Directorist_Page_Cache_Route_Resolver_Test extends WP_UnitTestCase {
         );
 
         $this->assertNull( $identity );
+    }
+
+    public function test_elementor_public_and_private_surfaces_follow_the_same_route_guards() {
+        $public_page  = self::factory()->post->create( [ 'post_type' => 'page', 'post_status' => 'publish' ] );
+        $private_page = self::factory()->post->create( [ 'post_type' => 'page', 'post_status' => 'publish' ] );
+        $mixed_page   = self::factory()->post->create( [ 'post_type' => 'page', 'post_status' => 'publish' ] );
+
+        update_post_meta( $public_page, '_elementor_data', '[{"widgetType":"directorist_all_listing"}]' );
+        update_post_meta( $private_page, '_elementor_data', '[{"widgetType":"directorist_user_dashboard"}]' );
+        update_post_meta( $mixed_page, '_elementor_data', '[{"elements":[{"widgetType":"directorist_all_listing"},{"widgetType":"directorist_user_login"}]}]' );
+
+        $resolver = new Route_Resolver();
+        $public   = $resolver->resolve( $this->state( [ 'page_id' => $public_page ] ) );
+        $private  = $resolver->resolve( $this->state( [ 'page_id' => $private_page ] ) );
+        $mixed    = $resolver->resolve( $this->state( [ 'page_id' => $mixed_page ] ) );
+
+        $this->assertNotNull( $public );
+        $this->assertSame( 'embedded', $public->get_route_type() );
+        $this->assertNull( $private );
+        $this->assertNull( $mixed );
     }
 
     public function test_unknown_page_is_not_claimed() {
@@ -254,6 +300,28 @@ class Directorist_Page_Cache_Route_Resolver_Test extends WP_UnitTestCase {
     }
 
     public function test_route_filter_cannot_override_canonical_site_query_or_language_material() {
+        $directory_id = self::factory()->term->create(
+            [
+                'taxonomy' => ATBDP_DIRECTORY_TYPE,
+                'name'     => 'Canonical Query Directory',
+            ]
+        );
+        update_term_meta(
+            $directory_id,
+            'search_form_fields',
+            [
+                'fields' => [
+                    'title' => [
+                        'widget_name'         => 'title',
+                        'original_widget_key' => 'title',
+                    ],
+                ],
+                'groups' => [
+                    [ 'fields' => [ 'title' ] ],
+                    [ 'fields' => [] ],
+                ],
+            ]
+        );
         $callback = static function () {
             return [
                 'route_type' => 'embedded',
@@ -268,19 +336,83 @@ class Directorist_Page_Cache_Route_Resolver_Test extends WP_UnitTestCase {
         $identity = ( new Route_Resolver() )->resolve(
             $this->state(
                 [
-                    'site_id'    => 4,
-                    'page_id'    => 120,
-                    'query_args' => [ 'q' => 'canonical' ],
-                    'language'   => 'en',
+                    'site_id'       => 4,
+                    'page_id'       => 120,
+                    'query_args'    => [ 'q' => 'canonical' ],
+                    'directory_ids' => [ $directory_id ],
+                    'language'      => 'en',
                 ]
             )
         );
         remove_filter( 'directorist_page_cache_route_identity', $callback );
+        wp_delete_term( $directory_id, ATBDP_DIRECTORY_TYPE );
 
         $this->assertNotNull( $identity );
         $this->assertSame( 4, $identity->get_site_id() );
         $this->assertSame( [ 'q' => 'canonical' ], $identity->get_variation() );
         $this->assertSame( 'en', $identity->get_language() );
+    }
+
+    public function test_taxonomy_filter_query_uses_the_term_directory_search_schema() {
+        $directory_id = self::factory()->term->create(
+            [
+                'taxonomy' => ATBDP_DIRECTORY_TYPE,
+                'name'     => 'Taxonomy Search Directory',
+            ]
+        );
+        $category_id  = self::factory()->term->create(
+            [
+                'taxonomy' => ATBDP_CATEGORY,
+                'name'     => 'Taxonomy Search Category',
+            ]
+        );
+        update_term_meta(
+            $directory_id,
+            'search_form_fields',
+            [
+                'fields' => [
+                    'text_1' => [
+                        'widget_name'         => 'text',
+                        'original_widget_key' => 'text_1',
+                    ],
+                ],
+                'groups' => [
+                    [ 'fields' => [] ],
+                    [ 'fields' => [ 'text_1' ] ],
+                ],
+            ]
+        );
+        update_term_meta(
+            $directory_id,
+            'submission_form_fields',
+            [
+                'fields' => [
+                    'text_1' => [
+                        'widget_name' => 'text',
+                        'field_key'   => 'custom-taxonomy-text',
+                    ],
+                ],
+            ]
+        );
+        update_term_meta( $category_id, '_directory_type', [ $directory_id ] );
+
+        $identity = ( new Route_Resolver() )->resolve(
+            $this->state(
+                [
+                    'taxonomy'   => ATBDP_CATEGORY,
+                    'term_id'    => $category_id,
+                    'query_args' => [
+                        'custom_field' => [ 'custom-taxonomy-text' => 'coffee' ],
+                    ],
+                ]
+            )
+        );
+
+        wp_delete_term( $category_id, ATBDP_CATEGORY );
+        wp_delete_term( $directory_id, ATBDP_DIRECTORY_TYPE );
+
+        $this->assertNotNull( $identity );
+        $this->assertSame( [ 'custom-taxonomy-text' => 'coffee' ], $identity->get_variation()['custom_field'] );
     }
 
     private function state( array $overrides = [] ) {

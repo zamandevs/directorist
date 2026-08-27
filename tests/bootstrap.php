@@ -39,6 +39,7 @@ tests_add_filter(
     'muplugins_loaded',
     static function () {
         require_once DIRECTORIST_TESTS_PLUGIN_DIR . '/directorist-base.php';
+        add_filter( 'directorist_page_cache_allow_runtime_mutation', '__return_false', PHP_INT_MAX );
     }
 );
 

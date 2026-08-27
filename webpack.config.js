@@ -8,10 +8,12 @@ module.exports = {
 	...defaultConfig,
 	entry: {
 		'js/react/admin/order': './assets/src/js/react/admin/pages/index.tsx',
+		'js/react/admin/performance': './assets/src/js/react/admin/pages/performance/index.tsx',
 		'js/react/frontend/payment-receipt': './assets/src/js/react/frontend/payment-receipt.js',
 		'js/react/frontend/listing-owner-dashboard': './assets/src/js/react/frontend/listing-owner-dashboard/index.tsx',
 		
 		'css/admin/app': './assets/src/scss/admin-app.scss',
+		'css/admin/performance': './assets/src/scss/layout/admin/performance.scss',
 		'css/public/app': './assets/src/scss/public-app.scss',
 	},
 	output: {
