@@ -4,6 +4,7 @@
  */
 
 use Directorist\Cache\Query_Normalizer;
+use Directorist\Cache\Query_Schema_Resolver;
 
 class Directorist_Page_Cache_Query_Normalizer_Test extends WP_UnitTestCase {
     /** @var int[] */
@@ -295,6 +296,32 @@ class Directorist_Page_Cache_Query_Normalizer_Test extends WP_UnitTestCase {
 
         $this->assertNotEmpty( $first['id'] );
         $this->assertTrue( $result->is_valid(), $result->get_reason() . ':' . $result->get_detail() );
+    }
+
+    public function test_global_provider_arguments_union_builder_and_extension_schema() {
+        $this->create_directory(
+            'Provider Union One',
+            [ 'title' ],
+            [ 'first_text' ],
+            [ 'first_text' => [ 'widget_name' => 'text', 'field_key' => 'custom-first' ] ]
+        );
+        $this->create_directory( 'Provider Union Two', [], [ 'radius_search' ] );
+        $callback = static function ( $schema, $route_type ) {
+            if ( 'search' === $route_type ) {
+                $schema['arguments'][] = 'extension_public_filter';
+            }
+
+            return $schema;
+        };
+        add_filter( 'directorist_page_cache_query_schema', $callback, 10, 2 );
+        $arguments = ( new Query_Schema_Resolver() )->all_public_arguments();
+        remove_filter( 'directorist_page_cache_query_schema', $callback, 10 );
+
+        $this->assertContains( 'q', $arguments );
+        $this->assertContains( 'custom_field', $arguments );
+        $this->assertContains( 'miles', $arguments );
+        $this->assertContains( 'extension_public_filter', $arguments );
+        $this->assertSame( $arguments, array_values( array_unique( $arguments ) ) );
     }
 
     public function test_builder_configuration_changes_are_used_without_manual_cache_management() {
