@@ -291,6 +291,39 @@ final class Directorist_Page_Cache_Built_In_Cache_Engine_Test extends TestCase {
         $storage->release_refresh_claim( $key );
     }
 
+    public function test_late_refresh_rejection_releases_the_claim_for_the_next_stale_request() {
+        $this->seed( 'late-failed-dispatch' );
+        $this->now = 1011;
+        $shutdown  = [];
+        $options   = [
+            'config'                   => [
+                'refresh_endpoint' => 'https://example.test/wp-admin/admin-ajax.php',
+                'refresh_token'    => 'trusted-token',
+            ],
+            'early_refresh_transport'  => static function () {
+                return 499;
+            },
+            'early_shutdown_registrar' => static function ( $callback, array $request ) use ( &$shutdown ) {
+                $shutdown = compact( 'callback', 'request' );
+
+                return true;
+            },
+        ];
+
+        $first = $this->engine( $options )->boot_early( $this->server(), [] );
+
+        $this->assertTrue( $first['served'] );
+        $this->assertSame( 'refresh_queued', $first['code'] );
+        $this->assertNotEmpty( $shutdown );
+        $this->assertSame( 'refresh_due', $this->engine( $options )->boot_early( $this->server(), [] )['code'] );
+        $this->assertFalse( call_user_func( $shutdown['callback'], $shutdown['request'] ) );
+
+        $retry = $this->engine( $options )->boot_early( $this->server(), [] );
+
+        $this->assertTrue( $retry['served'] );
+        $this->assertSame( 'refresh_queued', $retry['code'] );
+    }
+
     public function test_logged_in_soft_stale_reader_never_becomes_the_regenerator() {
         $this->seed( 'authenticated-stale-reader' );
         $this->now = 1011;
@@ -510,12 +543,14 @@ final class Directorist_Page_Cache_Built_In_Cache_Engine_Test extends TestCase {
         return new Cache_Engine(
             $config,
             [
-                'clock'              => $clock,
-                'refresh_dispatcher' => isset( $overrides['refresh_dispatcher'] ) ? $overrides['refresh_dispatcher'] : null,
-                'core_begin'         => isset( $overrides['core_begin'] ) ? $overrides['core_begin'] : function () {
+                'clock'                    => $clock,
+                'refresh_dispatcher'       => isset( $overrides['refresh_dispatcher'] ) ? $overrides['refresh_dispatcher'] : null,
+                'early_refresh_transport'  => isset( $overrides['early_refresh_transport'] ) ? $overrides['early_refresh_transport'] : null,
+                'early_shutdown_registrar' => isset( $overrides['early_shutdown_registrar'] ) ? $overrides['early_shutdown_registrar'] : null,
+                'core_begin'               => isset( $overrides['core_begin'] ) ? $overrides['core_begin'] : function () {
                     return $this->descriptor();
                 },
-                'core_finish'        => isset( $overrides['core_finish'] ) ? $overrides['core_finish'] : function () {
+                'core_finish'              => isset( $overrides['core_finish'] ) ? $overrides['core_finish'] : function () {
                     return $this->descriptor();
                 },
             ]
