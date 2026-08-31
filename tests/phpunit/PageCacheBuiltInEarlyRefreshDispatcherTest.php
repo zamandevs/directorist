@@ -54,4 +54,64 @@ final class Directorist_Page_Cache_Built_In_Early_Refresh_Dispatcher_Test extend
         $this->assertFalse( $dispatcher->send( array_merge( $base, [ 'token' => 'short' ] ) ) );
         $this->assertFalse( $dispatcher->send( array_merge( $base, [ 'hash' => '../unsafe' ] ) ) );
     }
+
+    public function test_only_2xx_transport_acknowledgement_succeeds_and_failure_is_reported_once() {
+        $request  = [
+            'endpoint' => 'https://example.test/wp-admin/admin-ajax.php',
+            'token'    => 'trusted-token',
+            'url'      => 'https://example.test/directory/',
+            'hash'     => hash( 'sha256', 'key' ),
+        ];
+        $failures = [];
+        $rejected = new Early_Refresh_Dispatcher(
+            static function () {
+                return 499;
+            },
+            null,
+            static function ( array $failed_request, $reason ) use ( &$failures ) {
+                $failures[] = [ $failed_request, $reason ];
+            }
+        );
+
+        $this->assertFalse( $rejected->send( $request ) );
+        $this->assertCount( 1, $failures );
+        $this->assertSame( $request['hash'], $failures[0][0]['hash'] );
+        $this->assertSame( 'http_rejected', $failures[0][1] );
+
+        $accepted = new Early_Refresh_Dispatcher(
+            static function () {
+                return 202;
+            },
+            null,
+            static function () use ( &$failures ) {
+                $failures[] = [ [], 'unexpected' ];
+            }
+        );
+
+        $this->assertTrue( $accepted->send( $request ) );
+        $this->assertCount( 1, $failures );
+    }
+
+    public function test_oversized_encoded_payload_reports_failure_after_a_valid_dispatch_request() {
+        $failure    = [];
+        $transport  = static function () {
+            throw new RuntimeException( 'Oversized payload must fail before transport.' );
+        };
+        $dispatcher = new Early_Refresh_Dispatcher(
+            $transport,
+            null,
+            static function ( array $request, $reason ) use ( &$failure ) {
+                $failure = [ $request['hash'], $reason ];
+            }
+        );
+        $request    = [
+            'endpoint' => 'https://example.test/wp-admin/admin-ajax.php',
+            'token'    => 'trusted-token',
+            'url'      => 'https://example.test/directory/?value=' . str_repeat( '%', 6000 ),
+            'hash'     => hash( 'sha256', 'oversized' ),
+        ];
+
+        $this->assertFalse( $dispatcher->send( $request ) );
+        $this->assertSame( [ $request['hash'], 'payload_too_large' ], $failure );
+    }
 }

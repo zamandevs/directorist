@@ -84,7 +84,21 @@ namespace Directorist\Cache\Built_In {
             $this->refresh_policy     = new Refresh_Policy();
             $this->refresh_dispatcher = isset( $options['refresh_dispatcher'] ) && is_callable( $options['refresh_dispatcher'] )
                 ? $options['refresh_dispatcher']
-                : [ new Early_Refresh_Dispatcher(), 'dispatch' ];
+                : [
+                    new Early_Refresh_Dispatcher(
+                        isset( $options['early_refresh_transport'] ) ? $options['early_refresh_transport'] : null,
+                        $clock,
+                        function ( array $request ) {
+                            if ( empty( $this->current_key['hash'] ) || empty( $request['hash'] ) || ! hash_equals( $this->current_key['hash'], $request['hash'] ) ) {
+                                return;
+                            }
+
+                            $this->storage->release_refresh_claim( $this->current_key );
+                        },
+                        isset( $options['early_shutdown_registrar'] ) ? $options['early_shutdown_registrar'] : null
+                    ),
+                    'dispatch',
+                ];
             $this->core_begin         = isset( $options['core_begin'] ) && is_callable( $options['core_begin'] )
                 ? $options['core_begin']
                 : static function () {
