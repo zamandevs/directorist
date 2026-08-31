@@ -21,21 +21,30 @@ final class Performance_Operations {
     /** @var callable */
     private $site_id;
 
+    /** @var callable */
+    private $record_invalidation;
+
     /**
      * @param Cache_Provider            $provider Selected provider.
      * @param Performance_Settings|null $settings Settings source.
      * @param Performance_Event_Log|null $events Event log.
      * @param callable|null             $discover Warm URL discovery.
      * @param callable|null             $site_id Site ID provider.
+     * @param callable|null             $record_invalidation Successful invalidation recorder.
      */
-    public function __construct( Cache_Provider $provider, Performance_Settings $settings = null, Performance_Event_Log $events = null, $discover = null, $site_id = null ) {
-        $this->provider = $provider;
-        $this->settings = $settings ?: new Performance_Settings();
-        $this->events   = $events ?: new Performance_Event_Log( $this->settings );
-        $this->discover = is_callable( $discover ) ? $discover : static function ( array $args ) {
+    public function __construct( Cache_Provider $provider, Performance_Settings $settings = null, Performance_Event_Log $events = null, $discover = null, $site_id = null, $record_invalidation = null ) {
+        $this->provider            = $provider;
+        $this->settings            = $settings ?: new Performance_Settings();
+        $this->events              = $events ?: new Performance_Event_Log( $this->settings );
+        $this->discover            = is_callable( $discover ) ? $discover : static function ( array $args ) {
             return directorist_page_cache_discover_warm_urls( $args );
         };
-        $this->site_id  = is_callable( $site_id ) ? $site_id : 'get_current_blog_id';
+        $this->site_id             = is_callable( $site_id ) ? $site_id : 'get_current_blog_id';
+        $this->record_invalidation = is_callable( $record_invalidation ) ? $record_invalidation : static function ( array $result, array $plan ) {
+            return function_exists( 'directorist_page_cache_record_resource_purge' )
+                ? directorist_page_cache_record_resource_purge( $result, $plan )
+                : false;
+        };
     }
 
     /**
@@ -125,16 +134,14 @@ final class Performance_Operations {
             return $this->result( false, 'capability_unavailable' );
         }
 
-        return $this->normalize_result(
-            $this->provider->invalidate(
-                [
-                    'site_id'      => max( 1, (int) call_user_func( $this->site_id ) ),
-                    'urls'         => [],
-                    'dependencies' => [],
-                    'generations'  => [],
-                    'conservative' => true,
-                ]
-            )
+        return $this->invalidate(
+            [
+                'site_id'      => max( 1, (int) call_user_func( $this->site_id ) ),
+                'urls'         => [],
+                'dependencies' => [],
+                'generations'  => [],
+                'conservative' => true,
+            ]
         );
     }
 
@@ -160,16 +167,14 @@ final class Performance_Operations {
             }
         }
 
-        return $this->normalize_result(
-            $this->provider->invalidate(
-                [
-                    'site_id'      => max( 1, (int) call_user_func( $this->site_id ) ),
-                    'urls'         => $urls,
-                    'dependencies' => [],
-                    'generations'  => [],
-                    'conservative' => false,
-                ]
-            )
+        return $this->invalidate(
+            [
+                'site_id'      => max( 1, (int) call_user_func( $this->site_id ) ),
+                'urls'         => $urls,
+                'dependencies' => [],
+                'generations'  => [],
+                'conservative' => false,
+            ]
         );
     }
 
@@ -188,16 +193,14 @@ final class Performance_Operations {
             return $this->result( false, 'invalid_url' );
         }
 
-        return $this->normalize_result(
-            $this->provider->invalidate(
-                [
-                    'site_id'      => max( 1, (int) call_user_func( $this->site_id ) ),
-                    'urls'         => $urls,
-                    'dependencies' => [],
-                    'generations'  => [],
-                    'conservative' => false,
-                ]
-            )
+        return $this->invalidate(
+            [
+                'site_id'      => max( 1, (int) call_user_func( $this->site_id ) ),
+                'urls'         => $urls,
+                'dependencies' => [],
+                'generations'  => [],
+                'conservative' => false,
+            ]
         );
     }
 
@@ -218,17 +221,15 @@ final class Performance_Operations {
 
         $site_id = max( 1, (int) call_user_func( $this->site_id ) );
 
-        return $this->normalize_result(
-            $this->provider->invalidate(
-                [
-                    'site_id'      => $site_id,
-                    'urls'         => [],
-                    'entry_hashes' => [],
-                    'dependencies' => [ 'directorist:' . $site_id . ':route:' . $route_type ],
-                    'generations'  => [],
-                    'conservative' => false,
-                ]
-            )
+        return $this->invalidate(
+            [
+                'site_id'      => $site_id,
+                'urls'         => [],
+                'entry_hashes' => [],
+                'dependencies' => [ 'directorist:' . $site_id . ':route:' . $route_type ],
+                'generations'  => [],
+                'conservative' => false,
+            ]
         );
     }
 
@@ -245,18 +246,33 @@ final class Performance_Operations {
             return $this->result( false, 'capability_unavailable' );
         }
 
-        return $this->normalize_result(
-            $this->provider->invalidate(
-                [
-                    'site_id'      => max( 1, (int) call_user_func( $this->site_id ) ),
-                    'urls'         => [],
-                    'entry_hashes' => [ $entry_hash ],
-                    'dependencies' => [],
-                    'generations'  => [],
-                    'conservative' => false,
-                ]
-            )
+        return $this->invalidate(
+            [
+                'site_id'      => max( 1, (int) call_user_func( $this->site_id ) ),
+                'urls'         => [],
+                'entry_hashes' => [ $entry_hash ],
+                'dependencies' => [],
+                'generations'  => [],
+                'conservative' => false,
+            ]
         );
+    }
+
+    /** @return array */
+    private function invalidate( array $plan ) {
+        $result = $this->normalize_result( $this->provider->invalidate( $plan ) );
+
+        if ( empty( $result['success'] ) ) {
+            return $result;
+        }
+
+        try {
+            call_user_func( $this->record_invalidation, $result, $plan );
+        } catch ( \Throwable $exception ) {
+            unset( $exception );
+        }
+
+        return $result;
     }
 
     /**

@@ -50,6 +50,12 @@ final class Performance_Resource_Reconciler {
         $generation = max( $now, isset( $status['generation'] ) ? (int) $status['generation'] + 1 : 1 );
         $status     = $this->store->begin_generation( $generation );
 
+        if ( ! is_array( $status ) ) {
+            return [ 'success' => false, 'code' => 'catalog-busy', 'status' => $this->store->status() ];
+        }
+
+        $generation = (int) $status['generation'];
+
         try {
             $dispatched = call_user_func( $this->dispatcher, $generation );
         } catch ( \Throwable $exception ) {
@@ -58,7 +64,11 @@ final class Performance_Resource_Reconciler {
         }
 
         if ( ! $dispatched ) {
-            $status = $this->store->update_status( [ 'state' => 'failed', 'errors' => 1, 'code' => 'dispatch-failed' ] );
+            $status = $this->store->update_generation_status( $generation, [ 'state' => 'failed', 'errors' => 1, 'code' => 'dispatch-failed' ] );
+
+            if ( false === $status ) {
+                return [ 'success' => false, 'code' => 'stale-generation', 'status' => $this->store->status() ];
+            }
 
             return [ 'success' => false, 'code' => 'dispatch-failed', 'status' => $status ];
         }
@@ -78,8 +88,13 @@ final class Performance_Resource_Reconciler {
         $phase  = isset( $status['phase'] ) ? sanitize_key( (string) $status['phase'] ) : 'listing';
         $cursor = isset( $status['cursor'] ) ? max( 0, (int) $status['cursor'] ) : 0;
         try {
-            $batch  = $this->discovery->batch( $phase, $cursor, self::BATCH_SIZE );
-            $items  = isset( $batch['items'] ) && is_array( $batch['items'] ) ? $batch['items'] : [];
+            $batch = $this->discovery->batch( $phase, $cursor, self::BATCH_SIZE );
+            $items = isset( $batch['items'] ) && is_array( $batch['items'] ) ? $batch['items'] : [];
+
+            if ( ! $this->store->is_building_generation( $generation ) ) {
+                return [ 'success' => false, 'code' => 'stale-generation', 'status' => $this->store->status() ];
+            }
+
             $stored = $this->store->upsert( $items, $generation );
 
             if ( $stored < count( $items ) ) {
@@ -89,12 +104,22 @@ final class Performance_Resource_Reconciler {
             $this->sync_cache_states( $items );
         } catch ( \Throwable $exception ) {
             unset( $exception );
+
+            if ( ! $this->store->is_building_generation( $generation ) ) {
+                return [ 'success' => false, 'code' => 'stale-generation', 'status' => $this->store->status() ];
+            }
+
             $errors = ( isset( $status['errors'] ) ? max( 0, (int) $status['errors'] ) : 0 ) + 1;
-            $status = $this->store->update_status( [ 'errors' => $errors, 'state' => 3 <= $errors ? 'failed' : 'building', 'code' => 'batch-failed' ] );
+            $status = $this->store->update_generation_status( $generation, [ 'errors' => $errors, 'state' => 3 <= $errors ? 'failed' : 'building', 'code' => 'batch-failed' ] );
+
+            if ( false === $status ) {
+                return [ 'success' => false, 'code' => 'stale-generation', 'status' => $this->store->status() ];
+            }
 
             return [ 'success' => 3 > $errors, 'code' => 3 <= $errors ? 'failed' : 'processing', 'status' => $status ];
         }
-        $status = $this->store->update_status(
+        $status = $this->store->update_generation_status(
+            $generation,
             [
                 'processed' => ( isset( $status['processed'] ) ? max( 0, (int) $status['processed'] ) : 0 ) + $stored,
                 'cursor'    => isset( $batch['next_cursor'] ) ? max( 0, (int) $batch['next_cursor'] ) : $cursor + 1,
@@ -103,6 +128,10 @@ final class Performance_Resource_Reconciler {
             ]
         );
 
+        if ( false === $status ) {
+            return [ 'success' => false, 'code' => 'stale-generation', 'status' => $this->store->status() ];
+        }
+
         if ( empty( $batch['done'] ) ) {
             return [ 'success' => true, 'code' => 'processing', 'status' => $status ];
         }
@@ -110,12 +139,18 @@ final class Performance_Resource_Reconciler {
         $phase_index = array_search( $phase, Performance_Resource_Discovery::PHASES, true );
 
         if ( false !== $phase_index && isset( Performance_Resource_Discovery::PHASES[ $phase_index + 1 ] ) ) {
-            $status = $this->store->update_status( [ 'phase' => Performance_Resource_Discovery::PHASES[ $phase_index + 1 ], 'cursor' => 0 ] );
+            $status = $this->store->update_generation_status( $generation, [ 'phase' => Performance_Resource_Discovery::PHASES[ $phase_index + 1 ], 'cursor' => 0 ] );
+
+            if ( false === $status ) {
+                return [ 'success' => false, 'code' => 'stale-generation', 'status' => $this->store->status() ];
+            }
 
             return [ 'success' => true, 'code' => 'processing', 'status' => $status ];
         }
 
-        $this->store->complete_generation( $generation );
+        if ( ! $this->store->complete_generation( $generation ) ) {
+            return [ 'success' => false, 'code' => 'stale-generation', 'status' => $this->store->status() ];
+        }
 
         return [ 'success' => true, 'code' => 'completed', 'status' => $this->store->status() ];
     }

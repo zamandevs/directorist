@@ -169,6 +169,32 @@ final class Directorist_Page_Cache_Performance_Resource_Reconciler_Test extends 
         $this->assertSame( 'new', $this->store->query( [ 'type' => 'page' ] )['items'][0]['logical_key'] );
     }
 
+    public function test_worker_stops_when_its_generation_is_superseded_during_discovery() {
+        self::factory()->post->create( [ 'post_type' => ATBDP_POST_TYPE, 'post_status' => 'publish', 'post_title' => 'Concurrent listing' ] );
+        $this->store->create();
+        $this->store->begin_generation( 100 );
+        $superseded = false;
+        $supersede  = function ( $query ) use ( &$superseded ) {
+            if ( ! $superseded && ATBDP_POST_TYPE === $query->get( 'post_type' ) ) {
+                $superseded = true;
+                $this->store->begin_generation( 200 );
+            }
+        };
+        add_action( 'pre_get_posts', $supersede );
+
+        try {
+            $result = ( new Performance_Resource_Reconciler( $this->store, new Performance_Resource_Discovery(), '__return_true' ) )->process( 100 );
+        } finally {
+            remove_action( 'pre_get_posts', $supersede );
+        }
+
+        $this->assertTrue( $superseded );
+        $this->assertFalse( $result['success'] );
+        $this->assertSame( 'stale-generation', $result['code'] );
+        $this->assertSame( 200, $this->store->status()['generation'] );
+        $this->assertSame( 'building', $this->store->status()['state'] );
+    }
+
     public function test_page_discovery_includes_gutenberg_and_elementor_directorist_surfaces_only() {
         $block_page             = self::factory()->post->create(
             [

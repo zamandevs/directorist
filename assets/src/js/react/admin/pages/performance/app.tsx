@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from '@wordpress/el
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { chevronDown, chevronLeft, chevronRight, chevronUp, closeSmall, cog, external, info, trash, update } from '@wordpress/icons';
 import { homeUrl, mutate, read } from './api';
-import { cacheActionMessage, cacheActionRefreshMode, clearPendingResourceActions, completedPerformancePollTargets, markPendingResourceActions, nextCacheStateSort, nextModifiedSort, pageCacheMode, paginationMode, performanceFailureLabel, performanceJobDescription, performanceJobFailureMessage, performanceJobOutcome, performancePollDelay, performancePollTargets, resourceActionIsPending, resourceActionUrlChunks, resourceFilterCount, resourceScope, selectedWarmFailureMessage, selectedWarmSuccessMessage, selectedWarmValidationMessage, settingsAreEqual, timestampDate, variantOutcome, warmQueueIsActive, warmQueuePollDelay } from './model';
+import { cacheActionMessage, cacheActionRefreshMode, clearPendingResourceActions, completedPerformancePollTargets, markPendingResourceActions, markPurgedResourceRows, nextCacheStateSort, nextModifiedSort, pageCacheMode, paginationMode, performanceFailureLabel, performanceJobDescription, performanceJobFailureMessage, performanceJobOutcome, performancePollDelay, performancePollTargets, resourceActionIsPending, resourceActionUrlChunks, resourceFilterCount, resourceScope, selectedWarmFailureMessage, selectedWarmSuccessMessage, selectedWarmValidationMessage, settingsAreEqual, timestampDate, variantOutcome, warmQueueIsActive, warmQueuePollDelay } from './model';
 import {
 	CacheActionResult,
 	CacheCoverage as CacheCoverageData,
@@ -647,9 +647,15 @@ export default function App() {
 		setPendingResourceActions(pendingResourceActionsRef.current);
 		try {
 			let result: CacheActionResult = { success: true, code: 'processed' };
+			const completedUrls: string[] = [];
 
 			for (const urls of chunks) {
 				result = await mutate<CacheActionResult>('/cache/actions', { action, urls });
+
+				if (action === 'purge-selected') {
+					completedUrls.push(...urls);
+					setResources((current) => ({ ...current, items: markPurgedResourceRows(current.items, actionableItems, completedUrls) }));
+				}
 			}
 
 			setNotice(cacheActionMessage(action, result));
@@ -662,7 +668,11 @@ export default function App() {
 				else if (completed && refreshed) setNotice({ status: 'success', message: selectedWarmSuccessMessage(actionableItems) });
 				else if (!completed) setNotice({ status: 'info', message: __('Preloading continues in the background.', 'directorist') });
 			} else {
-				await Promise.all([loadSummary(), loadResources({ silent: cacheActionRefreshMode(action) === 'silent' })]);
+				await loadSummary();
+
+				if (resourceCacheState || resourceSort.orderby === 'cache_state') {
+					await loadResources({ silent: true });
+				}
 			}
 		} catch (error) {
 			setNotice({ status: 'error', message: readableError(error) });
@@ -670,7 +680,7 @@ export default function App() {
 			pendingResourceActionsRef.current = clearPendingResourceActions(pendingResourceActionsRef.current, actionableItems);
 			setPendingResourceActions(pendingResourceActionsRef.current);
 		}
-	}, [loadResources, loadSummary, waitForSelectedWarm]);
+	}, [loadResources, loadSummary, resourceCacheState, resourceSort.orderby, waitForSelectedWarm]);
 
 	const runIndexAction = useCallback(async (action: string, directoryId?: number) => {
 		setBusy(true);

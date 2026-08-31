@@ -1895,6 +1895,36 @@ namespace {
         }
     }
 
+    if ( ! function_exists( 'directorist_page_cache_record_resource_purge' ) ) {
+        /** @return bool */
+        function directorist_page_cache_record_resource_purge( $result, $plan ) {
+            if ( ! is_array( $result ) || empty( $result['success'] ) || ! is_array( $plan ) ) {
+                return false;
+            }
+
+            $store = directorist_page_cache_performance_resource_store();
+
+            foreach ( isset( $plan['urls'] ) && is_array( $plan['urls'] ) ? $plan['urls'] : [] as $url ) {
+                $store->update_cache_state(
+                    $url,
+                    [
+                        'state'                => 'uncached',
+                        'created_at'           => 0,
+                        'expires_at'           => 0,
+                        'stale_until'          => 0,
+                        'refresh_requested_at' => 0,
+                    ]
+                );
+            }
+
+            if ( ! empty( $plan['conservative'] ) || ! empty( $plan['generations'] ) ) {
+                $store->mark_all_cache_state( 'uncached' );
+            }
+
+            return true;
+        }
+    }
+
     if ( ! function_exists( 'directorist_page_cache_register_builtin_cleanup_worker' ) ) {
         /**
          * Register the signed built-in cleanup controller only for its internal request.

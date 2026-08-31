@@ -13,6 +13,8 @@ class Directorist_Page_Cache_Performance_Test_Provider implements Cache_Provider
 
     public $warms = [];
 
+    public $invalidation_result = [ 'success' => true, 'code' => 'invalidated' ];
+
     public function get_id() {
         return 'test-cache';
     }
@@ -32,7 +34,7 @@ class Directorist_Page_Cache_Performance_Test_Provider implements Cache_Provider
     public function invalidate( array $request ) {
         $this->invalidations[] = $request;
 
-        return [ 'success' => true, 'code' => 'invalidated' ];
+        return $this->invalidation_result;
     }
 
     public function warm( array $urls ) {
@@ -129,6 +131,52 @@ class Directorist_Page_Cache_Performance_Operations_Test extends WP_UnitTestCase
         $this->assertCount( 1, $provider->invalidations );
     }
 
+    public function test_successful_exact_and_site_purges_record_resource_state() {
+        $provider   = new Directorist_Page_Cache_Performance_Test_Provider();
+        $recorded   = [];
+        $url        = home_url( '/directory/recorded-listing/' );
+        $operations = $this->operations(
+            $provider,
+            static function ( $result, $plan ) use ( &$recorded ) {
+                $recorded[] = compact( 'result', 'plan' );
+
+                return true;
+            }
+        );
+
+        $exact = $operations->execute( 'purge_url', [ 'url' => $url ] );
+        $site  = $operations->execute( 'purge', [] );
+
+        $this->assertTrue( $exact['success'] );
+        $this->assertTrue( $site['success'] );
+        $this->assertCount( 2, $recorded );
+        $this->assertSame( [ $url ], $recorded[0]['plan']['urls'] );
+        $this->assertFalse( $recorded[0]['plan']['conservative'] );
+        $this->assertSame( 'invalidated', $recorded[0]['result']['code'] );
+        $this->assertSame( [], $recorded[1]['plan']['urls'] );
+        $this->assertTrue( $recorded[1]['plan']['conservative'] );
+    }
+
+    public function test_failed_purge_does_not_change_recorded_resource_state() {
+        $provider                      = new Directorist_Page_Cache_Performance_Test_Provider();
+        $provider->invalidation_result = [ 'success' => false, 'code' => 'provider-failed' ];
+        $recorded                      = [];
+        $operations                    = $this->operations(
+            $provider,
+            static function ( $result, $plan ) use ( &$recorded ) {
+                $recorded[] = compact( 'result', 'plan' );
+
+                return true;
+            }
+        );
+
+        $result = $operations->execute( 'purge_url', [ 'url' => home_url( '/directory/failed-listing/' ) ] );
+
+        $this->assertFalse( $result['success'] );
+        $this->assertSame( 'provider-failed', $result['code'] );
+        $this->assertSame( [], $recorded );
+    }
+
     public function test_route_and_entry_purges_accept_only_bounded_identifiers() {
         $provider   = new Directorist_Page_Cache_Performance_Test_Provider();
         $operations = $this->operations( $provider );
@@ -208,7 +256,7 @@ class Directorist_Page_Cache_Performance_Operations_Test extends WP_UnitTestCase
         $this->assertSame( 'unhealthy', $operations->execute( 'verify', [] )['code'] );
     }
 
-    private function operations( Cache_Provider $provider ) {
+    private function operations( Cache_Provider $provider, $record_invalidation = null ) {
         return new Performance_Operations(
             $provider,
             new Performance_Settings(),
@@ -218,7 +266,8 @@ class Directorist_Page_Cache_Performance_Operations_Test extends WP_UnitTestCase
             },
             static function () {
                 return 1;
-            }
+            },
+            $record_invalidation
         );
     }
 }
