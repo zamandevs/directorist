@@ -45,6 +45,7 @@ namespace Directorist\Cache {
                 'Directorist\\Cache\\Cache_Enabler_Provider'    => 'providers/class-cache-enabler-provider.php',
                 'Directorist\\Cache\\Dropin_Owner_Detector'     => 'class-dropin-owner-detector.php',
                 'Directorist\\Cache\\LiteSpeed_Cache_Provider'  => 'providers/class-litespeed-cache-provider.php',
+                'Directorist\\Cache\\Plugin_Version'           => 'providers/class-provider-plugin-version.php',
                 'Directorist\\Cache\\Provider_Capabilities'     => 'class-provider-capabilities.php',
                 'Directorist\\Cache\\Provider_Registry'         => 'class-provider-registry.php',
                 'Directorist\\Cache\\Provider_Selection'        => 'class-provider-selection.php',
