@@ -5,9 +5,11 @@
 
 use Directorist\Cache\Built_In\Lifecycle;
 use Directorist\Cache\Built_In\Cleanup_Background_Process;
+use Directorist\Cache\Cache_Enabler_Compatibility;
 use Directorist\Cache\LiteSpeed_Compatibility;
 use Directorist\Cache\Performance_Settings;
 use Directorist\Cache\Warm_Background_Process;
+use Directorist\Cache\WP_Fastest_Cache_Compatibility;
 
 final class Directorist_Page_Cache_Built_In_Bootstrap_Test extends WP_UnitTestCase {
     protected function tearDown(): void {
@@ -17,7 +19,9 @@ final class Directorist_Page_Cache_Built_In_Bootstrap_Test extends WP_UnitTestCa
         wp_clear_scheduled_hook( 'directorist_page_cache_daily_cleanup' );
         wp_clear_scheduled_hook( 'directorist_page_cache_refresh_due_entries' );
         directorist_page_cache_builtin_cleanup_process()->reset();
+        Cache_Enabler_Compatibility::reset();
         LiteSpeed_Compatibility::reset();
+        WP_Fastest_Cache_Compatibility::reset();
 
         parent::tearDown();
     }
@@ -26,6 +30,9 @@ final class Directorist_Page_Cache_Built_In_Bootstrap_Test extends WP_UnitTestCa
         $this->assertNotFalse( has_action( 'activate_plugin', 'directorist_page_cache_prepare_external_activation' ) );
         $this->assertNotFalse( has_action( 'activated_plugin', 'directorist_page_cache_schedule_lifecycle_reconciliation' ) );
         $this->assertNotFalse( has_action( 'deactivate_wp-super-cache/wp-cache.php', 'directorist_page_cache_cleanup_wp_super_cache_before_deactivation' ) );
+        $this->assertNotFalse( has_action( 'deactivate_cache-enabler/cache-enabler.php', 'directorist_page_cache_cleanup_cache_enabler_before_deactivation' ) );
+        $this->assertNotFalse( has_action( 'deactivate_wp-fastest-cache/wpFastestCache.php', 'directorist_page_cache_cleanup_wp_fastest_cache_before_deactivation' ) );
+        $this->assertNotFalse( has_action( 'deactivate_litespeed-cache/litespeed-cache.php', 'directorist_page_cache_cleanup_litespeed_before_deactivation' ) );
         $this->assertNotFalse( has_action( 'deactivated_plugin', 'directorist_page_cache_schedule_lifecycle_reconciliation' ) );
         $this->assertNotFalse( has_action( 'deactivated_plugin', 'directorist_page_cache_cleanup_external_compatibility' ) );
         $this->assertNotFalse( has_action( 'upgrader_process_complete', 'directorist_page_cache_schedule_lifecycle_reconciliation' ) );
@@ -45,16 +52,80 @@ final class Directorist_Page_Cache_Built_In_Bootstrap_Test extends WP_UnitTestCa
         };
 
         update_option( LiteSpeed_Compatibility::OPTION_NAME, [ 'policy_version' => 1 ], false );
+        update_option( Cache_Enabler_Compatibility::OPTION_NAME, [ 'policy_version' => 1 ], false );
+        update_option( WP_Fastest_Cache_Compatibility::OPTION_NAME, [ 'policy_version' => 1 ], false );
 
         $unrelated = directorist_page_cache_cleanup_external_compatibility( 'akismet/akismet.php', false, $cleanup );
         $wpsc      = directorist_page_cache_cleanup_external_compatibility( 'wp-super-cache/wp-cache.php', false, $cleanup );
-        $litespeed = directorist_page_cache_cleanup_external_compatibility( 'litespeed-cache/litespeed-cache.php', false, $cleanup );
+        $litespeed = directorist_page_cache_cleanup_external_compatibility(
+            'litespeed-cache/litespeed-cache.php',
+            false,
+            static function () {
+                LiteSpeed_Compatibility::reset();
+
+                return [ 'success' => true, 'code' => 'configuration_removed' ];
+            }
+        );
+        $enabler   = directorist_page_cache_cleanup_external_compatibility(
+            'cache-enabler/cache-enabler.php',
+            false,
+            static function () {
+                Cache_Enabler_Compatibility::reset();
+
+                return [ 'success' => true, 'code' => 'configuration_removed' ];
+            }
+        );
+        $fastest   = directorist_page_cache_cleanup_external_compatibility(
+            'wp-fastest-cache/wpFastestCache.php',
+            false,
+            static function () {
+                WP_Fastest_Cache_Compatibility::reset();
+
+                return [ 'success' => true, 'code' => 'configuration_removed' ];
+            }
+        );
 
         $this->assertSame( 'compatibility_not_required', $unrelated['code'] );
         $this->assertSame( 'configuration_removed', $wpsc['code'] );
         $this->assertSame( 'configuration_removed', $litespeed['code'] );
+        $this->assertSame( 'configuration_removed', $enabler['code'] );
+        $this->assertSame( 'configuration_removed', $fastest['code'] );
         $this->assertSame( [], LiteSpeed_Compatibility::current() );
+        $this->assertSame( [], Cache_Enabler_Compatibility::current() );
+        $this->assertSame( [], WP_Fastest_Cache_Compatibility::current() );
         $this->assertSame( 1, $calls );
+    }
+
+    public function test_external_compatibility_sync_preserves_stable_runtime_mutation_keys() {
+        $mutations = [];
+        $filter    = static function ( $allowed, $mutation ) use ( &$mutations ) {
+            if ( false !== strpos( (string) $mutation, 'sync' ) ) {
+                $mutations[] = (string) $mutation;
+
+                return false;
+            }
+
+            return $allowed;
+        };
+
+        add_filter( 'directorist_page_cache_allow_runtime_mutation', $filter, 10, 2 );
+
+        try {
+            foreach ( [ 'wp-super-cache', 'cache-enabler', 'wp-fastest-cache', 'litespeed-cache' ] as $provider ) {
+                $result = directorist_page_cache_sync_external_compatibility(
+                    [
+                        'state'    => 'external',
+                        'provider' => $provider,
+                    ]
+                );
+
+                $this->assertSame( 'runtime_mutation_disabled', $result['code'] );
+            }
+        } finally {
+            remove_filter( 'directorist_page_cache_allow_runtime_mutation', $filter, 10 );
+        }
+
+        $this->assertSame( [ 'wpsc_sync', 'cache_enabler_sync', 'wpfc_sync', 'litespeed_sync' ], $mutations );
     }
 
     public function test_cron_boot_registers_cleanup_healthcheck_schedule_before_rescheduling() {

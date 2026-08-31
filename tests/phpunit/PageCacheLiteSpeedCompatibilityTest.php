@@ -4,6 +4,7 @@
  */
 
 use Directorist\Cache\Cache_Provider;
+use Directorist\Cache\Cookie_Policy;
 use Directorist\Cache\LiteSpeed_Compatibility;
 
 final class Directorist_Page_Cache_LiteSpeed_Compatibility_Provider implements Cache_Provider {
@@ -102,12 +103,18 @@ class Directorist_Page_Cache_LiteSpeed_Compatibility_Test extends WP_UnitTestCas
     public function test_policy_activation_purges_and_preloads_once_per_version() {
         $provider = new Directorist_Page_Cache_LiteSpeed_Compatibility_Provider();
         $warms    = [];
+        $refresh  = 0;
         $compat   = new LiteSpeed_Compatibility(
             [
                 'clock'             => static function () {
                     return 1000;
                 },
                 'deny_cache'        => '__return_true',
+                'refresh_vary'      => static function () use ( &$refresh ) {
+                    ++$refresh;
+
+                    return true;
+                },
                 'warm_after_repair' => static function ( $selected, $purge, $plan ) use ( &$warms, $provider ) {
                     $warms[] = [ $selected, $purge, $plan ];
                     PHPUnit\Framework\Assert::assertSame( $provider, $selected );
@@ -125,13 +132,14 @@ class Directorist_Page_Cache_LiteSpeed_Compatibility_Test extends WP_UnitTestCas
         $this->assertCount( 1, $provider->invalidations );
         $this->assertTrue( $provider->invalidations[0]['conservative'] );
         $this->assertCount( 1, $warms );
+        $this->assertSame( 1, $refresh );
         $this->assertSame( LiteSpeed_Compatibility::REQUEST_POLICY_VERSION, LiteSpeed_Compatibility::current()['policy_version'] );
     }
 
     public function test_failed_policy_purge_is_retried_and_never_marked_current() {
         $provider          = new Directorist_Page_Cache_LiteSpeed_Compatibility_Provider();
         $provider->succeed = false;
-        $compat            = new LiteSpeed_Compatibility( [ 'deny_cache' => '__return_true' ] );
+        $compat            = new LiteSpeed_Compatibility( [ 'deny_cache' => '__return_true', 'refresh_vary' => '__return_true' ] );
 
         $first  = $compat->activate( $provider );
         $second = $compat->activate( $provider );
@@ -139,6 +147,45 @@ class Directorist_Page_Cache_LiteSpeed_Compatibility_Test extends WP_UnitTestCas
         $this->assertSame( 'policy_purge_failed', $first['code'] );
         $this->assertSame( 'policy_purge_failed', $second['code'] );
         $this->assertCount( 2, $provider->invalidations );
+        $this->assertSame( [], LiteSpeed_Compatibility::current() );
+    }
+
+    public function test_native_vary_filters_preserve_provider_cookies_and_add_bounded_language_names() {
+        $compat = new LiteSpeed_Compatibility(
+            [
+                'cookie_policy' => static function () {
+                    return Cookie_Policy::defaults();
+                },
+            ]
+        );
+
+        $this->assertSame(
+            [ 'existing_cookie', 'pll_language', 'wp-wpml_current_language' ],
+            $compat->vary_cookies( [ 'existing_cookie', 'pll_language' ] )
+        );
+    }
+
+    public function test_vary_refresh_failure_is_retried_without_purging_or_marking_policy_current() {
+        $provider = new Directorist_Page_Cache_LiteSpeed_Compatibility_Provider();
+        $refresh  = 0;
+        $compat   = new LiteSpeed_Compatibility(
+            [
+                'deny_cache'   => '__return_true',
+                'refresh_vary' => static function () use ( &$refresh ) {
+                    ++$refresh;
+
+                    return false;
+                },
+            ]
+        );
+
+        $first  = $compat->activate( $provider );
+        $second = $compat->activate( $provider );
+
+        $this->assertSame( 'vary_refresh_failed', $first['code'] );
+        $this->assertSame( 'vary_refresh_failed', $second['code'] );
+        $this->assertSame( 2, $refresh );
+        $this->assertCount( 0, $provider->invalidations );
         $this->assertSame( [], LiteSpeed_Compatibility::current() );
     }
 }
