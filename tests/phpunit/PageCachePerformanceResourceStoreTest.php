@@ -73,6 +73,63 @@ final class Directorist_Page_Cache_Performance_Resource_Store_Test extends WP_Un
         $this->assertSame( 1, $this->store->coverage()['total'] );
     }
 
+    public function test_stale_generation_cannot_update_or_complete_a_newer_catalog_build() {
+        $this->store->begin_generation( 100 );
+        $this->store->upsert( [ [ 'logical_key' => 'old', 'title' => 'Old', 'url' => home_url( '/old/' ), 'type' => 'page', 'route_type' => 'page' ] ], 100 );
+        $this->store->begin_generation( 200 );
+        $this->store->upsert( [ [ 'logical_key' => 'new', 'title' => 'New', 'url' => home_url( '/new/' ), 'type' => 'page', 'route_type' => 'page' ] ], 200 );
+
+        $updated   = $this->store->update_generation_status( 100, [ 'state' => 'failed', 'code' => 'stale-worker' ] );
+        $completed = $this->store->complete_generation( 100 );
+        $status    = $this->store->status();
+
+        $this->assertFalse( $updated );
+        $this->assertFalse( $completed );
+        $this->assertSame( 'building', $status['state'] );
+        $this->assertSame( 200, $status['generation'] );
+        $this->assertSame( 2, $this->raw_count() );
+    }
+
+    public function test_restarted_generation_advances_identity_and_retains_latest_active_catalog() {
+        $this->store->begin_generation( 100 );
+        $this->store->upsert( [ [ 'logical_key' => 'current', 'title' => 'Current', 'url' => home_url( '/current/' ), 'type' => 'page', 'route_type' => 'page' ] ], 100 );
+        $this->store->complete_generation( 100 );
+
+        $status = $this->store->begin_generation( 100 );
+
+        $this->assertSame( 'building', $status['state'] );
+        $this->assertSame( 101, $status['generation'] );
+        $this->assertSame( 100, $status['active_generation'] );
+        $this->assertSame( 'current', $this->store->query( [ 'type' => 'page' ] )['items'][0]['logical_key'] );
+    }
+
+    public function test_successful_admin_purge_recorder_marks_exact_and_site_resources_uncached() {
+        $first  = home_url( '/first-cacheable-page/' );
+        $second = home_url( '/second-cacheable-page/' );
+        $this->store->begin_generation( 100 );
+        $this->store->upsert(
+            [
+                [ 'logical_key' => 'first', 'title' => 'First', 'url' => $first, 'type' => 'page', 'route_type' => 'page' ],
+                [ 'logical_key' => 'second', 'title' => 'Second', 'url' => $second, 'type' => 'page', 'route_type' => 'page' ],
+            ],
+            100
+        );
+        $this->store->complete_generation( 100 );
+        $cached = [ 'state' => 'current', 'created_at' => time(), 'expires_at' => time() + HOUR_IN_SECONDS, 'stale_until' => time() + DAY_IN_SECONDS ];
+        $this->store->update_cache_state( $first, $cached );
+        $this->store->update_cache_state( $second, $cached );
+
+        $this->assertTrue( directorist_page_cache_record_resource_purge( [ 'success' => true ], [ 'urls' => [ $first ], 'conservative' => false ] ) );
+        $items = $this->store->query( [ 'type' => 'page' ] )['items'];
+        $this->assertSame( 'uncached', $items[0]['stored_cache_state'] );
+        $this->assertSame( 'current', $items[1]['stored_cache_state'] );
+
+        $this->assertTrue( directorist_page_cache_record_resource_purge( [ 'success' => true ], [ 'urls' => [], 'conservative' => true ] ) );
+        $items = $this->store->query( [ 'type' => 'page' ] )['items'];
+        $this->assertSame( [ 'uncached', 'uncached' ], wp_list_pluck( $items, 'stored_cache_state' ) );
+        $this->assertSame( [ 0, 0 ], wp_list_pluck( wp_list_pluck( $items, 'stored_cache' ), 'created_at' ) );
+    }
+
     public function test_unpublished_post_rows_are_not_queryable_even_before_cleanup() {
         $listing = self::factory()->post->create( [ 'post_type' => ATBDP_POST_TYPE, 'post_status' => 'publish', 'post_title' => 'Published listing' ] );
         $this->store->begin_generation( 100 );

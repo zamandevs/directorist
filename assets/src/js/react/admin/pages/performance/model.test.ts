@@ -10,6 +10,7 @@ import {
 	performanceJobFailureMessage,
 	performancePollDelay,
 	markPendingResourceActions,
+	markPurgedResourceRows,
 	pageCacheMode,
 	nextModifiedSort,
 	nextCacheStateSort,
@@ -198,6 +199,28 @@ describe('Performance dashboard view model', () => {
 
 		expect(resourceActionIsPending(pending, resources[0].id)).toBe(true);
 		expect(resourceActionIsPending(pending, resources[1].id)).toBe(false);
+	});
+
+	it('updates only fully purged built-in resource rows', () => {
+		const first = {
+			id: 'listing:11',
+			url: 'https://example.test/en/one/',
+			variant_urls: ['https://example.test/en/one/', 'https://example.test/sv/one/'],
+			cache: { state: 'current', exact: true, created_at: 100, expires_at: 200, body_size: 300, failure_code: '' },
+		} as CacheResource;
+		const second = {
+			id: 'listing:12',
+			url: 'https://example.test/two/',
+			variant_urls: ['https://example.test/two/'],
+			cache: { state: 'managed', exact: false, created_at: 0, expires_at: 0, body_size: 0, failure_code: '' },
+		} as CacheResource;
+
+		const partial = markPurgedResourceRows([first, second], [first, second], ['https://example.test/en/one/']);
+		const complete = markPurgedResourceRows(partial, [first, second], ['https://example.test/en/one/', 'https://example.test/sv/one/', 'https://example.test/two/']);
+
+		expect(partial[0]).toBe(first);
+		expect(complete[0].cache).toMatchObject({ state: 'uncached', exact: true, created_at: 0, expires_at: 0, body_size: 0, failure_code: '' });
+		expect(complete[1]).toBe(second);
 	});
 
 	it('clears completed rows without disturbing another pending action', () => {

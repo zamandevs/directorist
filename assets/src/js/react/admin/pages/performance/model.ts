@@ -86,6 +86,31 @@ export function clearPendingResourceActions(current: PendingResourceActions, res
 	return next;
 }
 
+export function markPurgedResourceRows(current: CacheResource[], requested: CacheResource[], completedUrls: string[]): CacheResource[] {
+	const completed = new Set(completedUrls);
+	const purgedIds = new Set(requested.filter((resource) => {
+		const urls = resource.variant_urls?.length ? resource.variant_urls : [resource.url];
+
+		return resource.cache.exact && urls.length > 0 && urls.every((url) => completed.has(url));
+	}).map((resource) => resource.id));
+
+	return current.map((resource) => {
+		if (!purgedIds.has(resource.id)) return resource;
+
+		return {
+			...resource,
+			cache: {
+				...resource.cache,
+				state: 'uncached',
+				created_at: 0,
+				expires_at: 0,
+				body_size: 0,
+				failure_code: '',
+			},
+		};
+	});
+}
+
 export function resourceActionIsPending(current: PendingResourceActions, resourceId: string) {
 	return Boolean(current[resourceId]);
 }

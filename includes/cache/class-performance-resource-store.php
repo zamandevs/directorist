@@ -99,25 +99,34 @@ final class Performance_Resource_Store {
     }
 
     public function begin_generation( $generation = 0 ) {
-        $generation = 0 < (int) $generation ? (int) $generation : time();
-        $previous   = $this->status();
-        $active     = isset( $previous['active_generation'] ) ? max( 0, (int) $previous['active_generation'] ) : ( 'ready' === ( isset( $previous['state'] ) ? $previous['state'] : '' ) && isset( $previous['generation'] ) ? max( 0, (int) $previous['generation'] ) : 0 );
-        $status     = [
-            'state'             => 'building',
-            'generation'        => $generation,
-            'active_generation' => $active,
-            'phase'             => 'listing',
-            'cursor'            => 0,
-            'processed'         => 0,
-            'errors'            => 0,
-            'started_at'        => time(),
-            'updated_at'        => time(),
-            'completed_at'      => 0,
-        ];
-        update_option( self::STATUS_OPTION, $status, false );
-        $this->clear_coverage_cache();
+        $requested = 0 < (int) $generation ? (int) $generation : time();
 
-        return $status;
+        for ( $attempt = 0; $attempt < 5; ++$attempt ) {
+            $previous   = $this->status();
+            $prior      = isset( $previous['generation'] ) ? max( 0, (int) $previous['generation'] ) : 0;
+            $generation = max( $requested, $prior + 1 );
+            $active     = isset( $previous['active_generation'] ) ? max( 0, (int) $previous['active_generation'] ) : ( 'ready' === ( isset( $previous['state'] ) ? $previous['state'] : '' ) ? $prior : 0 );
+            $status     = [
+                'state'             => 'building',
+                'generation'        => $generation,
+                'active_generation' => $active,
+                'phase'             => 'listing',
+                'cursor'            => 0,
+                'processed'         => 0,
+                'errors'            => 0,
+                'started_at'        => time(),
+                'updated_at'        => time(),
+                'completed_at'      => 0,
+            ];
+
+            if ( $this->compare_and_swap_status( $previous, $status ) ) {
+                $this->clear_coverage_cache();
+
+                return $status;
+            }
+        }
+
+        return false;
     }
 
     public function update_status( array $changes ) {
@@ -128,6 +137,61 @@ final class Performance_Resource_Store {
         return $status;
     }
 
+    /** @return bool */
+    public function is_building_generation( $generation ) {
+        $status = $this->status();
+
+        return 'building' === ( isset( $status['state'] ) ? $status['state'] : '' )
+            && max( 1, (int) $generation ) === ( isset( $status['generation'] ) ? (int) $status['generation'] : 0 );
+    }
+
+    /** @return array|false */
+    public function update_generation_status( $generation, array $changes ) {
+        $generation = max( 1, (int) $generation );
+        $current    = $this->status();
+
+        if ( 'building' !== ( isset( $current['state'] ) ? $current['state'] : '' ) || $generation !== ( isset( $current['generation'] ) ? (int) $current['generation'] : 0 ) ) {
+            return false;
+        }
+
+        $next               = array_merge( $current, $changes );
+        $next['generation'] = $generation;
+        $next['updated_at'] = time();
+        if ( ! $this->compare_and_swap_status( $current, $next ) ) {
+            return false;
+        }
+
+        return $next;
+    }
+
+    private function compare_and_swap_status( array $current, array $next ) {
+        global $wpdb;
+
+        if ( empty( $current ) && false === get_option( self::STATUS_OPTION, false ) ) {
+            return add_option( self::STATUS_OPTION, $next, '', false );
+        }
+
+        // Compare the complete serialized value so a superseding worker cannot
+        // be overwritten between the generation check and the status write.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+        $updated = $wpdb->query(
+            $wpdb->prepare(
+                "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+                maybe_serialize( $next ),
+                self::STATUS_OPTION,
+                maybe_serialize( $current )
+            )
+        );
+
+        if ( 1 !== (int) $updated ) {
+            return false;
+        }
+
+        wp_cache_delete( self::STATUS_OPTION, 'options' );
+
+        return true;
+    }
+
     public function complete_generation( $generation ) {
         global $wpdb;
 
@@ -136,13 +200,10 @@ final class Performance_Resource_Store {
         }
 
         $generation = max( 1, (int) $generation );
-        $table      = $this->table_name();
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-        $wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE scan_generation <> %d", $generation ) );
-        $this->update_status(
+        $status     = $this->update_generation_status(
+            $generation,
             [
                 'state'             => 'ready',
-                'generation'        => $generation,
                 'active_generation' => $generation,
                 'phase'             => 'complete',
                 'cursor'            => 0,
@@ -150,6 +211,14 @@ final class Performance_Resource_Store {
                 'code'              => 'completed',
             ]
         );
+
+        if ( false === $status ) {
+            return false;
+        }
+
+        $table = $this->table_name();
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+        $wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE scan_generation < %d", $generation ) );
         $this->clear_coverage_cache();
 
         return true;
@@ -569,10 +638,13 @@ final class Performance_Resource_Store {
             return false;
         }
 
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+        $reset = 'uncached' === $state
+            ? ', cache_created_at = 0, cache_expires_at = 0, cache_stale_until = 0, cache_refresh_requested_at = 0'
+            : '';
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         $updated = false !== $wpdb->query(
             $wpdb->prepare(
-                "UPDATE " . $this->table_name() . " SET cache_state = %s, cache_failure_code = '', cache_checked_at = %d WHERE active = 1",
+                "UPDATE " . $this->table_name() . " SET cache_state = %s, cache_failure_code = '', cache_checked_at = %d{$reset} WHERE active = 1",
                 $state,
                 time()
             )
