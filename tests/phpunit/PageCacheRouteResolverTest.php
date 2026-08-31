@@ -236,17 +236,47 @@ class Directorist_Page_Cache_Route_Resolver_Test extends WP_UnitTestCase {
     }
 
     public function test_invalid_query_variation_makes_an_owned_route_uncacheable() {
-        $identity = ( new Route_Resolver() )->resolve(
-            $this->state(
-                [
-                    'page_id'          => 11,
-                    'configured_pages' => [ 'results' => 11 ],
-                    'query_args'       => [ '_wpnonce' => 'private' ],
-                ]
-            )
+        $resolver = new Route_Resolver();
+        $state    = $this->state(
+            [
+                'page_id'          => 11,
+                'configured_pages' => [ 'results' => 11 ],
+                'query_args'       => [ '_wpnonce' => 'private' ],
+            ]
         );
+        $identity = $resolver->resolve( $state );
 
         $this->assertNull( $identity );
+        $this->assertSame( Route_Resolver::REQUEST_REJECTED, $resolver->classify_request( $state ) );
+    }
+
+    public function test_request_classification_keeps_public_private_rejected_and_unrelated_routes_distinct() {
+        $resolver = new Route_Resolver();
+
+        $this->assertSame(
+            Route_Resolver::REQUEST_PUBLIC,
+            $resolver->classify_request( $this->state( [ 'page_id' => 10, 'configured_pages' => [ 'listings' => 10 ] ] ) )
+        );
+        $this->assertSame(
+            Route_Resolver::REQUEST_PRIVATE,
+            $resolver->classify_request( $this->state( [ 'page_id' => 12, 'configured_pages' => [ 'checkout' => 12 ] ] ) )
+        );
+        $this->assertSame(
+            Route_Resolver::REQUEST_REJECTED,
+            $resolver->classify_request(
+                $this->state(
+                    [
+                        'page_id'          => 11,
+                        'configured_pages' => [ 'results' => 11 ],
+                        'query_args'       => [ 'private_token' => 'secret' ],
+                    ]
+                )
+            )
+        );
+        $this->assertSame(
+            Route_Resolver::REQUEST_UNRELATED,
+            $resolver->classify_request( $this->state( [ 'page_id' => 100 ] ) )
+        );
     }
 
     public function test_raw_query_is_derived_from_request_uri_for_duplicate_detection() {

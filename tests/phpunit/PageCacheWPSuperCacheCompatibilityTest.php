@@ -142,6 +142,35 @@ class Directorist_Page_Cache_WP_Super_Cache_Compatibility_Test extends WP_UnitTe
         $this->assertSame( [], $writes );
     }
 
+    public function test_request_policy_version_change_purges_legacy_unsafe_entries_once() {
+        $config        = $this->ready_config();
+        $writes        = [];
+        $provider      = new Directorist_Page_Cache_WPSC_Compatibility_Provider();
+        $compat        = $this->compatibility( $config, $writes );
+        $legacy_config = $config;
+        unset( $legacy_config['wp_cache_mod_rewrite'] );
+        $legacy_hash = hash( 'sha256', wp_json_encode( $legacy_config ) );
+        $legacy      = [
+            'state'          => 'optimized',
+            'code'           => 'configuration_ready',
+            'safe'           => true,
+            'config_hash'    => $legacy_hash,
+            'applied_hash'   => $legacy_hash,
+            'policy_version' => WP_Super_Cache_Compatibility::REQUEST_POLICY_VERSION - 1,
+        ];
+        update_option( WP_Super_Cache_Compatibility::OPTION_NAME, $legacy, false );
+
+        $first  = $compat->activate( $provider );
+        $second = $compat->activate( $provider );
+        $status = WP_Super_Cache_Compatibility::current();
+
+        $this->assertSame( 'configuration_rebuilt', $first['code'] );
+        $this->assertSame( 'configuration_ready', $second['code'] );
+        $this->assertCount( 1, $provider->invalidations );
+        $this->assertSame( WP_Super_Cache_Compatibility::REQUEST_POLICY_VERSION, $status['policy_version'] );
+        $this->assertNotSame( $legacy['applied_hash'], $status['applied_hash'] );
+    }
+
     public function test_failed_provider_configuration_is_never_reported_as_safe_or_rebuilt() {
         $config = $this->ready_config();
         unset( $config['wp_cache_slash_check'] );
@@ -230,6 +259,9 @@ class Directorist_Page_Cache_WP_Super_Cache_Compatibility_Test extends WP_UnitTe
         $route = 'private';
         $this->assertSame( 'private_route', $compat->guard_request()['code'] );
 
+        $route = 'rejected';
+        $this->assertSame( 'rejected_route', $compat->guard_request()['code'] );
+
         $route = 'public';
         $begin = [ 'eligible' => false, 'reason' => 'rejected_cookie' ];
         $this->assertSame( 'request_bypassed', $compat->guard_request()['code'] );
@@ -238,7 +270,7 @@ class Directorist_Page_Cache_WP_Super_Cache_Compatibility_Test extends WP_UnitTe
         $this->assertSame( 'request_eligible', $compat->guard_request()['code'] );
         $this->assertSame( 'render_bypassed', $compat->finish_request()['code'] );
         $this->assertSame( 1, $finished );
-        $this->assertSame( [ 'private_route', 'rejected_cookie', 'private_render' ], $denied );
+        $this->assertSame( [ 'private_route', 'rejected_route', 'rejected_cookie', 'private_render' ], $denied );
     }
 
     public function test_deactivation_removes_only_directorist_managed_configuration() {

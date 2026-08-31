@@ -44,6 +44,7 @@ namespace Directorist\Cache {
                 'Directorist\\Cache\\Abstract_Cache_Provider'   => 'providers/abstract-cache-provider.php',
                 'Directorist\\Cache\\Cache_Enabler_Provider'    => 'providers/class-cache-enabler-provider.php',
                 'Directorist\\Cache\\Dropin_Owner_Detector'     => 'class-dropin-owner-detector.php',
+                'Directorist\\Cache\\LiteSpeed_Compatibility'      => 'class-litespeed-compatibility.php',
                 'Directorist\\Cache\\LiteSpeed_Cache_Provider'  => 'providers/class-litespeed-cache-provider.php',
                 'Directorist\\Cache\\Plugin_Version'           => 'providers/class-provider-plugin-version.php',
                 'Directorist\\Cache\\Provider_Capabilities'     => 'class-provider-capabilities.php',
@@ -136,6 +137,7 @@ namespace {
     use Directorist\Cache\Cookie_Policy;
     use Directorist\Cache\Dropin_Owner_Detector;
     use Directorist\Cache\Internal_Request_Guard;
+    use Directorist\Cache\LiteSpeed_Compatibility;
     use Directorist\Cache\Performance_Admin;
     use Directorist\Cache\Performance_Event_Log;
     use Directorist\Cache\Performance_Job_Manager;
@@ -453,6 +455,19 @@ namespace {
 
             if ( ! $compatibility instanceof WP_Super_Cache_Compatibility ) {
                 $compatibility = new WP_Super_Cache_Compatibility();
+            }
+
+            return $compatibility;
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_litespeed_compatibility' ) ) {
+        /** @return LiteSpeed_Compatibility */
+        function directorist_page_cache_litespeed_compatibility() {
+            static $compatibility;
+
+            if ( ! $compatibility instanceof LiteSpeed_Compatibility ) {
+                $compatibility = new LiteSpeed_Compatibility();
             }
 
             return $compatibility;
@@ -1433,13 +1448,15 @@ namespace {
                 directorist_page_cache_wp_super_cache_compatibility()->deactivate();
             }
 
+            LiteSpeed_Compatibility::reset();
+
             return directorist_page_cache_builtin_lifecycle()->deactivate_core();
         }
     }
 
     if ( ! function_exists( 'directorist_page_cache_cleanup_external_compatibility' ) ) {
         /**
-         * Remove Directorist-owned WP Super Cache settings while its writer is loaded.
+         * Remove Directorist-owned external-provider compatibility state.
          *
          * @param string        $plugin Plugin basename.
          * @param bool          $network_wide Network deactivation state.
@@ -1448,6 +1465,12 @@ namespace {
          */
         function directorist_page_cache_cleanup_external_compatibility( $plugin, $network_wide = false, $deactivator = null ) {
             unset( $network_wide );
+
+            if ( 'litespeed-cache/litespeed-cache.php' === (string) $plugin ) {
+                LiteSpeed_Compatibility::reset();
+
+                return [ 'success' => true, 'code' => 'configuration_removed' ];
+            }
 
             if ( 'wp-super-cache/wp-cache.php' !== (string) $plugin ) {
                 return [ 'success' => true, 'code' => 'compatibility_not_required' ];
@@ -1495,25 +1518,45 @@ namespace {
          * @return array
          */
         function directorist_page_cache_sync_external_compatibility( array $state ) {
-            if ( 'external' !== ( isset( $state['state'] ) ? $state['state'] : '' ) || 'wp-super-cache' !== ( isset( $state['provider'] ) ? $state['provider'] : '' ) ) {
-                return directorist_page_cache_cleanup_external_compatibility( 'wp-super-cache/wp-cache.php' );
+            $external    = 'external' === ( isset( $state['state'] ) ? $state['state'] : '' );
+            $provider_id = $external && isset( $state['provider'] ) ? (string) $state['provider'] : '';
+            $cleanup     = [ 'success' => true, 'code' => 'configuration_absent' ];
+
+            if ( 'litespeed-cache' !== $provider_id ) {
+                LiteSpeed_Compatibility::reset();
             }
 
-            if ( ! apply_filters( 'directorist_page_cache_allow_runtime_mutation', true, 'wpsc_sync' ) ) {
+            if ( 'wp-super-cache' !== $provider_id ) {
+                $cleanup = directorist_page_cache_cleanup_external_compatibility( 'wp-super-cache/wp-cache.php' );
+
+                if ( empty( $cleanup['success'] ) ) {
+                    return $cleanup;
+                }
+            }
+
+            if ( ! in_array( $provider_id, [ 'wp-super-cache', 'litespeed-cache' ], true ) ) {
+                return $cleanup;
+            }
+
+            $mutation = 'wp-super-cache' === $provider_id ? 'wpsc_sync' : 'litespeed_sync';
+
+            if ( ! apply_filters( 'directorist_page_cache_allow_runtime_mutation', true, $mutation ) ) {
                 return [ 'success' => true, 'code' => 'runtime_mutation_disabled' ];
             }
 
             $selection = directorist_page_cache_provider_registry()->select();
             $provider  = $selection->get_provider();
 
-            if ( ! $provider instanceof Cache_Provider || 'wp-super-cache' !== $provider->get_id() ) {
+            if ( ! $provider instanceof Cache_Provider || $provider_id !== $provider->get_id() ) {
                 return [ 'success' => false, 'code' => 'provider_not_selected' ];
             }
 
-            $result = directorist_page_cache_wp_super_cache_compatibility()->activate( $provider );
+            $result = 'wp-super-cache' === $provider_id
+                ? directorist_page_cache_wp_super_cache_compatibility()->activate( $provider )
+                : directorist_page_cache_litespeed_compatibility()->activate( $provider );
             directorist_page_cache_record_performance_event(
                 ! empty( $result['success'] ) ? 'success' : 'warning',
-                'wpsc-' . ( isset( $result['code'] ) ? sanitize_key( (string) $result['code'] ) : 'compatibility-failed' )
+                sanitize_key( $provider_id ) . '-' . ( isset( $result['code'] ) ? sanitize_key( (string) $result['code'] ) : 'compatibility-failed' )
             );
 
             return $result;
@@ -1909,6 +1952,10 @@ namespace {
 
                 if ( 'wp-super-cache' === $provider->get_id() ) {
                     directorist_page_cache_wp_super_cache_compatibility()->register();
+                }
+
+                if ( 'litespeed-cache' === $provider->get_id() ) {
+                    directorist_page_cache_litespeed_compatibility()->register();
                 }
 
                 if ( 'directorist-cache' === $provider->get_id() ) {
