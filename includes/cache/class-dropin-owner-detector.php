@@ -6,8 +6,9 @@ namespace Directorist\Cache;
  * Classifies advanced-cache.php without executing third-party code.
  */
 class Dropin_Owner_Detector {
-    const CACHE_OPTION   = 'directorist_page_cache_dropin_owner_v1';
-    const MAX_READ_BYTES = 65536;
+    const CACHE_OPTION           = 'directorist_page_cache_dropin_owner_v1';
+    const MAX_READ_BYTES         = 65536;
+    const FINGERPRINT_READ_BYTES = 1024;
 
     /** @var string */
     private $path;
@@ -30,10 +31,12 @@ class Dropin_Owner_Detector {
             return 'none';
         }
 
+        $fingerprint = $this->use_persistent_cache ? $this->fingerprint() : '';
+
         if ( $this->use_persistent_cache ) {
             $cached = get_site_option( self::CACHE_OPTION, [] );
 
-            if ( is_array( $cached ) && isset( $cached['path'], $cached['owner'] ) && $this->path === $cached['path'] ) {
+            if ( '' !== $fingerprint && is_array( $cached ) && isset( $cached['path'], $cached['owner'], $cached['fingerprint'] ) && $this->path === $cached['path'] && hash_equals( $fingerprint, (string) $cached['fingerprint'] ) ) {
                 return $this->normalize_owner( $cached['owner'] );
             }
         }
@@ -42,11 +45,18 @@ class Dropin_Owner_Detector {
         $owner   = $this->detect_content( $content );
 
         if ( $this->use_persistent_cache ) {
+            $verified_fingerprint = $this->fingerprint();
+
+            if ( '' === $fingerprint || '' === $verified_fingerprint || ! hash_equals( $fingerprint, $verified_fingerprint ) ) {
+                return 'unknown';
+            }
+
             update_site_option(
                 self::CACHE_OPTION,
                 [
-                    'path'  => $this->path,
-                    'owner' => $owner,
+                    'path'        => $this->path,
+                    'owner'       => $owner,
+                    'fingerprint' => $verified_fingerprint,
                 ]
             );
         }
@@ -94,6 +104,43 @@ class Dropin_Owner_Detector {
         fclose( $handle );
 
         return false === $content ? '' : $content;
+    }
+
+    /** @return string */
+    private function fingerprint() {
+        clearstatcache( true, $this->path );
+        $stat = @stat( $this->path );
+
+        if ( ! is_array( $stat ) ) {
+            return '';
+        }
+
+        $values = [];
+
+        foreach ( [ 'dev', 'ino', 'size', 'mtime', 'ctime' ] as $key ) {
+            if ( ! isset( $stat[ $key ] ) || ! is_numeric( $stat[ $key ] ) ) {
+                return '';
+            }
+
+            $values[] = (string) $stat[ $key ];
+        }
+
+        $handle = @fopen( $this->path, 'rb' );
+
+        if ( false === $handle ) {
+            return '';
+        }
+
+        $prefix = fread( $handle, self::FINGERPRINT_READ_BYTES );
+        fclose( $handle );
+
+        if ( false === $prefix ) {
+            return '';
+        }
+
+        $values[] = hash( 'sha256', $prefix );
+
+        return hash( 'sha256', implode( ':', $values ) );
     }
 
     /**

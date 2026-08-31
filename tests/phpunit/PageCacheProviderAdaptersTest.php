@@ -5,6 +5,7 @@
 
 use Directorist\Cache\Cache_Enabler_Provider;
 use Directorist\Cache\LiteSpeed_Cache_Provider;
+use Directorist\Cache\Plugin_Version;
 use Directorist\Cache\Provider_Capabilities;
 use Directorist\Cache\WP_Fastest_Cache_Provider;
 use Directorist\Cache\WP_Rocket_Provider;
@@ -200,6 +201,50 @@ class Directorist_Page_Cache_Provider_Adapters_Test extends WP_UnitTestCase {
         $provider->invalidate( $this->plan( [], [ 'directorist:1:site' ] ) );
 
         $this->assertSame( [ [ 'url', 'https://example.org/a/' ], [ 'site' ] ], $calls );
+    }
+
+    public function test_litespeed_requires_a_real_cache_server_type_even_when_cache_flag_is_set() {
+        $operation     = static function () {};
+        $apache        = new LiteSpeed_Cache_Provider(
+            [
+                'purge_site'  => $operation,
+                'server_type' => 'NONE',
+                'cache_on'    => true,
+            ]
+        );
+        $openlitespeed = new LiteSpeed_Cache_Provider(
+            [
+                'purge_site'  => $operation,
+                'server_type' => 'LITESPEED_SERVER_OLS',
+                'cache_on'    => true,
+            ]
+        );
+        $disabled      = new LiteSpeed_Cache_Provider(
+            [
+                'purge_site'  => $operation,
+                'server_type' => 'LITESPEED_SERVER_ENT',
+                'cache_on'    => false,
+            ]
+        );
+
+        $this->assertFalse( $apache->is_available() );
+        $this->assertTrue( $openlitespeed->is_available() );
+        $this->assertFalse( $disabled->is_available() );
+    }
+
+    public function test_provider_version_resolver_prefers_the_bounded_plugin_header() {
+        $path = wp_tempnam( 'directorist-provider-version.php' );
+        file_put_contents( $path, "<?php\n/**\n * Plugin Name: Cache Provider\n * Version: 3.1.3\n */\n" );
+
+        $this->assertSame( '3.1.3', Plugin_Version::resolve( [ $path ], '1.12.1' ) );
+        $this->assertSame( '1.12.1', Plugin_Version::resolve( [ '/missing/provider.php' ], '1.12.1' ) );
+    }
+
+    public function test_provider_version_resolver_does_not_scan_beyond_the_header_window() {
+        $path = wp_tempnam( 'directorist-provider-version-bounded.php' );
+        file_put_contents( $path, "<?php\n" . str_repeat( ' ', Plugin_Version::MAX_READ_BYTES ) . "\n * Version: 9.9.9\n" );
+
+        $this->assertSame( 'unknown', Plugin_Version::resolve( [ $path ], 'unknown' ) );
     }
 
     public function test_operation_failure_and_exception_are_explicit_and_fail_open() {
