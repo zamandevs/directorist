@@ -16,7 +16,7 @@ final class Request_Context {
     private $query_args;
 
     /** @var array */
-    private $cookie_names;
+    private $cookies;
 
     /** @var array */
     private $headers;
@@ -60,7 +60,7 @@ final class Request_Context {
         $this->method         = strtoupper( trim( (string) $data['method'] ) );
         $this->request_uri    = (string) $data['request_uri'];
         $this->query_args     = is_array( $data['query_args'] ) ? $data['query_args'] : [];
-        $this->cookie_names   = $this->normalize_cookie_names( $data['cookies'] );
+        $this->cookies        = $this->normalize_cookies( $data['cookies'] );
         $this->headers        = $this->normalize_headers( $data['headers'] );
         $this->user_logged_in = (bool) $data['user_logged_in'];
         $this->route_owned    = (bool) $data['route_owned'];
@@ -87,7 +87,12 @@ final class Request_Context {
 
     /** @return string[] */
     public function get_cookie_names() {
-        return $this->cookie_names;
+        return array_keys( $this->cookies );
+    }
+
+    /** @return array */
+    public function get_cookies() {
+        return $this->cookies;
     }
 
     /**
@@ -132,23 +137,36 @@ final class Request_Context {
 
     /**
      * @param mixed $cookies Cookie map or list.
-     * @return string[]
+     * @return array
      */
-    private function normalize_cookie_names( $cookies ) {
+    private function normalize_cookies( $cookies ) {
         if ( ! is_array( $cookies ) ) {
             return [];
         }
 
-        $names = array_keys( $cookies );
+        $normalized = [];
 
         if ( array_keys( $cookies ) === range( 0, count( $cookies ) - 1 ) ) {
-            $names = array_values( $cookies );
+            foreach ( $cookies as $name ) {
+                $name = (string) $name;
+
+                if ( '' !== $name ) {
+                    $normalized[ $name ] = '';
+                }
+            }
+
+            return $normalized;
         }
 
-        $names = array_map( 'strval', $names );
-        $names = array_filter( $names, 'strlen' );
+        foreach ( $cookies as $name => $value ) {
+            $name = (string) $name;
 
-        return array_values( array_unique( $names ) );
+            if ( '' !== $name ) {
+                $normalized[ $name ] = is_scalar( $value ) ? (string) $value : '';
+            }
+        }
+
+        return $normalized;
     }
 
     /**

@@ -30,6 +30,9 @@ class Directorist_Page_Cache_Response_Capture_Test extends WP_UnitTestCase {
         $this->assertTrue( $begin['eligible'] );
         $this->assertSame( 'eligible', $begin['reason'] );
         $this->assertSame( 'listings', $begin['route_type'] );
+        $this->assertSame( 10, $begin['object_id'] );
+        $this->assertSame( 10, $begin['page_id'] );
+        $this->assertSame( '', $begin['language'] );
         $this->assertStringStartsWith( 'directorist:page:v1:site:1:', $begin['cache_key'] );
         $this->assertTrue( Cache_Manager::instance()->is_collecting_dependencies() );
 
@@ -57,6 +60,27 @@ class Directorist_Page_Cache_Response_Capture_Test extends WP_UnitTestCase {
         $this->assertSame( 'private_render', $final['reason'] );
         $this->assertSame( 'extension_session', $final['detail'] );
         $this->assertSame( [], $final['dependencies'] );
+    }
+
+    public function test_route_identity_metadata_survives_the_capture_handshake() {
+        $capture = new Response_Capture( Cache_Manager::instance() );
+        $begin   = $capture->begin(
+            $this->state(
+                [
+                    'is_singular_listing' => true,
+                    'object_id'           => 91,
+                    'page_id'             => 91,
+                    'language'            => 'sv',
+                ]
+            ),
+            $this->request()
+        );
+
+        $this->assertTrue( $begin['eligible'] );
+        $this->assertSame( 91, $begin['object_id'] );
+        $this->assertSame( 91, $begin['page_id'] );
+        $this->assertSame( 'sv', $begin['language'] );
+        $this->assertSame( 91, $capture->finish()['object_id'] );
     }
 
     /**

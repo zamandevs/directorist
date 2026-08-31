@@ -11,6 +11,7 @@ final class Provider_Capabilities {
     const PURGE_SITE         = 'purge_site';
     const PURGE_URL          = 'purge_url';
     const PURGE_URLS         = 'purge_urls';
+    const PURGE_ENTRIES      = 'purge_entries';
     const WARM_URLS          = 'warm_urls';
 
     /** @var array<string,bool> */
@@ -39,6 +40,7 @@ final class Provider_Capabilities {
             self::PURGE_SITE,
             self::PURGE_URL,
             self::PURGE_URLS,
+            self::PURGE_ENTRIES,
             self::WARM_URLS,
         ];
     }

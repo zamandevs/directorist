@@ -36,6 +36,7 @@ class Directorist_Page_Cache_Provider_Capabilities_Test extends WP_UnitTestCase 
                 'purge_site',
                 'purge_url',
                 'purge_urls',
+                'purge_entries',
                 'warm_urls',
             ],
             Provider_Capabilities::supported()

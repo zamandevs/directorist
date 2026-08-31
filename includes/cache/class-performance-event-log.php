@@ -7,6 +7,7 @@ namespace Directorist\Cache;
  */
 final class Performance_Event_Log {
     const OPTION_NAME = 'directorist_page_cache_events';
+    const MAX_AGE     = 2592000;
 
     /** @var Performance_Settings */
     private $settings;
@@ -38,7 +39,8 @@ final class Performance_Event_Log {
      */
     public function record( $level, $code, array $context = [] ) {
         $settings = $this->settings->get();
-        $events   = $this->recent();
+        $now      = (int) call_user_func( $this->clock );
+        $events   = $this->recent( $now );
         $level    = in_array( $level, [ 'info', 'success', 'warning', 'error' ], true ) ? $level : 'info';
         $code     = sanitize_title( (string) $code );
 
@@ -49,7 +51,7 @@ final class Performance_Event_Log {
         array_unshift(
             $events,
             [
-                'time'    => (int) call_user_func( $this->clock ),
+                'time'    => $now,
                 'site_id' => get_current_blog_id(),
                 'level'   => $level,
                 'code'    => $code,
@@ -63,10 +65,25 @@ final class Performance_Event_Log {
     }
 
     /** @return array */
-    public function recent() {
+    public function recent( $now = null ) {
         $events = get_option( self::OPTION_NAME, [] );
+        $now    = null === $now ? (int) call_user_func( $this->clock ) : max( 0, (int) $now );
 
-        return is_array( $events ) ? array_values( array_filter( $events, 'is_array' ) ) : [];
+        if ( ! is_array( $events ) ) {
+            return [];
+        }
+
+        return array_values(
+            array_filter(
+                $events,
+                static function ( $event ) use ( $now ) {
+                    return is_array( $event )
+                        && isset( $event['time'] )
+                        && is_numeric( $event['time'] )
+                        && (int) $event['time'] >= $now - self::MAX_AGE;
+                }
+            )
+        );
     }
 
     /** @return bool */
@@ -82,9 +99,11 @@ final class Performance_Event_Log {
      * @return bool
      */
     public function maybe_sample( array $decision, $phase ) {
-        $rate = $this->settings->get()['sample_rate'];
+        $settings = $this->settings->get();
+        $rate     = $settings['sample_rate'];
+        $now      = (int) call_user_func( $this->clock );
 
-        if ( 1 > $rate || (int) call_user_func( $this->random ) >= $rate ) {
+        if ( $settings['diagnostics_until'] < $now || 1 > $rate || (int) call_user_func( $this->random ) >= $rate ) {
             return false;
         }
 

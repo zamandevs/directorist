@@ -32,7 +32,14 @@ final class Response_Capture {
     public function __construct( Cache_Manager $manager = null, Route_Resolver $route_resolver = null, Request_Policy $request_policy = null ) {
         $this->manager        = $manager ?: Cache_Manager::instance();
         $this->route_resolver = $route_resolver ?: new Route_Resolver();
-        $this->request_policy = $request_policy ?: new Request_Policy( true );
+        $cache_filtered_results = true;
+
+        if ( null === $request_policy && function_exists( 'directorist_page_cache_performance_settings' ) ) {
+            $settings               = directorist_page_cache_performance_settings()->get();
+            $cache_filtered_results = ! empty( $settings['cache_filtered_results'] );
+        }
+
+        $this->request_policy = $request_policy ?: new Request_Policy( true, [], $cache_filtered_results );
     }
 
     /**
@@ -216,6 +223,9 @@ final class Response_Capture {
             'detail'       => (string) $detail,
             'site_id'      => $identity ? $identity->get_site_id() : 0,
             'route_type'   => $identity ? $identity->get_route_type() : '',
+            'object_id'    => $identity ? $identity->get_object_id() : 0,
+            'page_id'      => $identity ? $identity->get_page_id() : 0,
+            'language'     => $identity ? $identity->get_language() : '',
             'cache_key'    => $identity ? $identity->get_cache_key() : '',
             'dependencies' => [],
         ];

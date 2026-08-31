@@ -6,6 +6,9 @@ namespace Directorist\Cache;
  * Canonicalizes public Directorist query variation for cache identities.
  */
 final class Query_Normalizer {
+    /** @var Query_Schema_Resolver */
+    private $schema_resolver;
+
     /** @var string[] */
     private $private_arguments = [
         '_wpnonce',
@@ -16,12 +19,20 @@ final class Query_Normalizer {
     ];
 
     /**
+     * @param Query_Schema_Resolver|null $schema_resolver Query schema resolver.
+     */
+    public function __construct( Query_Schema_Resolver $schema_resolver = null ) {
+        $this->schema_resolver = $schema_resolver ?: new Query_Schema_Resolver();
+    }
+
+    /**
      * @param string $route_type Directorist route type.
      * @param array  $query_args Parsed query arguments.
      * @param string $raw_query Raw query string, when available.
+     * @param int[]  $directory_ids Directory IDs resolved from the route.
      * @return Query_Normalization_Result
      */
-    public function normalize( $route_type, array $query_args, $raw_query = '' ) {
+    public function normalize( $route_type, array $query_args, $raw_query = '', array $directory_ids = [] ) {
         $route_type = sanitize_key( (string) $route_type );
 
         foreach ( array_keys( $query_args ) as $name ) {
@@ -36,7 +47,8 @@ final class Query_Normalizer {
             return new Query_Normalization_Result( false, [], 'duplicate_query_argument', $duplicate );
         }
 
-        $allowlist = $this->get_allowlist( $route_type );
+        $schema = $this->schema_resolver->resolve( $route_type, $query_args, $directory_ids );
+        $allowlist = $schema['arguments'];
 
         foreach ( array_keys( $query_args ) as $name ) {
             if ( ! in_array( (string) $name, $allowlist, true ) ) {
@@ -54,81 +66,19 @@ final class Query_Normalizer {
             }
 
             $normalized[ (string) $name ] = $value;
+
+            if ( isset( $schema['nested_arguments'][ $name ] ) ) {
+                $unsupported_key = $this->find_unsupported_nested_key( $name, $value, $schema['nested_arguments'][ $name ] );
+
+                if ( '' !== $unsupported_key ) {
+                    return new Query_Normalization_Result( false, [], 'unsupported_query_argument', $unsupported_key );
+                }
+            }
         }
 
         ksort( $normalized, SORT_STRING );
 
         return new Query_Normalization_Result( true, $normalized );
-    }
-
-    /**
-     * @param string $route_type Route type.
-     * @return string[]
-     */
-    private function get_allowlist( $route_type ) {
-        $collection_routes = [
-            'listings',
-            'search',
-            'category',
-            'location',
-            'tag',
-            'author',
-            'categories',
-            'locations',
-            'search-form',
-            'embedded',
-        ];
-        $allowlist         = [];
-
-        if ( in_array( $route_type, $collection_routes, true ) ) {
-            $allowlist = [
-                'paged',
-                'page',
-                'q',
-                'in_cat',
-                'in_loc',
-                'in_tag',
-                'cat_id',
-                'loc_id',
-                'category',
-                'location',
-                'tag',
-                'directory_type',
-                'directory-type',
-                'sort',
-                'order',
-                'view',
-                'ids',
-                'custom_field',
-                'price',
-                'price_range',
-                'website',
-                'email',
-                'phone',
-                'fax',
-                'miles',
-                'address',
-                'cityLat',
-                'cityLng',
-                'zip',
-                'zip_cityLat',
-                'zip_cityLng',
-                'search_by_rating',
-            ];
-        }
-
-        /**
-         * Filters public query arguments represented in a Directorist cache key.
-         *
-         * This filter cannot make nonce/security arguments cacheable.
-         *
-         * @param string[] $allowlist Allowed argument names.
-         * @param string   $route_type Directorist route type.
-         */
-        $allowlist = apply_filters( 'directorist_page_cache_query_allowlist', $allowlist, $route_type );
-        $allowlist = is_array( $allowlist ) ? array_map( 'strval', $allowlist ) : [];
-
-        return array_values( array_unique( $allowlist ) );
     }
 
     /**
@@ -192,6 +142,32 @@ final class Query_Normalizer {
         }
 
         return array_keys( $value ) === range( 0, count( $value ) - 1 );
+    }
+
+    /**
+     * @param string       $argument Top-level query argument.
+     * @param mixed        $value Normalized query value.
+     * @param array|true   $allowed_keys Allowed first-level nested keys.
+     * @return string Unsupported query path, or an empty string.
+     */
+    private function find_unsupported_nested_key( $argument, $value, $allowed_keys ) {
+        if ( true === $allowed_keys ) {
+            return '';
+        }
+
+        if ( ! is_array( $value ) || $this->is_list( $value ) ) {
+            return (string) $argument;
+        }
+
+        $allowed_keys = is_array( $allowed_keys ) ? $allowed_keys : [];
+
+        foreach ( array_keys( $value ) as $key ) {
+            if ( ! in_array( (string) $key, $allowed_keys, true ) ) {
+                return sprintf( '%s[%s]', $argument, $key );
+            }
+        }
+
+        return '';
     }
 
     /**

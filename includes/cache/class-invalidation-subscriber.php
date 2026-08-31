@@ -670,7 +670,7 @@ final class Invalidation_Subscriber {
      * @return bool
      */
     private function is_ignored_listing_meta( $meta_key ) {
-        $ignored = [ '_edit_lock', '_edit_last', '_directorist_imported_by_csv', '_is_migrated', '_eael_post_view_count' ];
+        $ignored = [ '_edit_lock', '_edit_last', '_directorist_imported_by_csv', '_is_migrated', '_eael_post_view_count', '_elementor_page_assets' ];
 
         if ( function_exists( 'directorist_get_listing_views_count_meta_key' ) ) {
             $ignored[] = directorist_get_listing_views_count_meta_key();
@@ -692,7 +692,7 @@ final class Invalidation_Subscriber {
      * @return bool
      */
     private function is_ignored_page_meta( $meta_key ) {
-        $ignored = [ '_edit_lock', '_edit_last', '_eael_post_view_count' ];
+        $ignored = [ '_edit_lock', '_edit_last', '_eael_post_view_count', '_elementor_page_assets' ];
 
         /**
          * Filters operational or volatile public-page meta that should not purge page cache.
