@@ -12,6 +12,7 @@ class Directorist_Page_Cache_Dropin_Owner_Detector_Test extends WP_UnitTestCase 
         $this->assertSame( 'wp-super-cache', $detector->detect_content( '<?php // WP SUPER CACHE; WPCACHEHOME' ) );
         $this->assertSame( 'cache-enabler', $detector->detect_content( '<?php $cache_enabler_constants_file = true; CACHE_ENABLER_DIR;' ) );
         $this->assertSame( 'wp-rocket', $detector->detect_content( '<?php define( "WP_ROCKET_PATH", "/plugin/" );' ) );
+        $this->assertSame( 'wp-rocket', $detector->detect_content( '<?php define( "WP_ROCKET_ADVANCED_CACHE", true ); use WP_Rocket\\Buffer\\Cache;' ) );
         $this->assertSame( 'directorist-cache', $detector->detect_content( '<?php // DIRECTORIST PAGE CACHE DROPIN' ) );
     }
 

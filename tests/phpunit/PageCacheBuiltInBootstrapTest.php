@@ -10,6 +10,7 @@ use Directorist\Cache\LiteSpeed_Compatibility;
 use Directorist\Cache\Performance_Settings;
 use Directorist\Cache\Warm_Background_Process;
 use Directorist\Cache\WP_Fastest_Cache_Compatibility;
+use Directorist\Cache\WP_Rocket_Compatibility;
 
 final class Directorist_Page_Cache_Built_In_Bootstrap_Test extends WP_UnitTestCase {
     protected function tearDown(): void {
@@ -22,6 +23,7 @@ final class Directorist_Page_Cache_Built_In_Bootstrap_Test extends WP_UnitTestCa
         Cache_Enabler_Compatibility::reset();
         LiteSpeed_Compatibility::reset();
         WP_Fastest_Cache_Compatibility::reset();
+        WP_Rocket_Compatibility::reset();
 
         parent::tearDown();
     }
@@ -32,9 +34,11 @@ final class Directorist_Page_Cache_Built_In_Bootstrap_Test extends WP_UnitTestCa
         $this->assertNotFalse( has_action( 'deactivate_wp-super-cache/wp-cache.php', 'directorist_page_cache_cleanup_wp_super_cache_before_deactivation' ) );
         $this->assertNotFalse( has_action( 'deactivate_cache-enabler/cache-enabler.php', 'directorist_page_cache_cleanup_cache_enabler_before_deactivation' ) );
         $this->assertNotFalse( has_action( 'deactivate_wp-fastest-cache/wpFastestCache.php', 'directorist_page_cache_cleanup_wp_fastest_cache_before_deactivation' ) );
+        $this->assertNotFalse( has_action( 'deactivate_wp-rocket/wp-rocket.php', 'directorist_page_cache_cleanup_wp_rocket_before_deactivation' ) );
         $this->assertNotFalse( has_action( 'deactivate_litespeed-cache/litespeed-cache.php', 'directorist_page_cache_cleanup_litespeed_before_deactivation' ) );
         $this->assertNotFalse( has_action( 'deactivated_plugin', 'directorist_page_cache_schedule_lifecycle_reconciliation' ) );
         $this->assertNotFalse( has_action( 'deactivated_plugin', 'directorist_page_cache_cleanup_external_compatibility' ) );
+        $this->assertNotFalse( has_action( 'deactivated_plugin', 'directorist_page_cache_finalize_wp_rocket_deactivation' ) );
         $this->assertNotFalse( has_action( 'upgrader_process_complete', 'directorist_page_cache_schedule_lifecycle_reconciliation' ) );
         $this->assertNotFalse( has_action( 'admin_init', 'directorist_page_cache_reconcile_lifecycle' ) );
         $this->assertNotFalse( has_action( 'directorist_page_cache_reconcile_lifecycle', 'directorist_page_cache_reconcile_lifecycle' ) );
@@ -54,6 +58,7 @@ final class Directorist_Page_Cache_Built_In_Bootstrap_Test extends WP_UnitTestCa
         update_option( LiteSpeed_Compatibility::OPTION_NAME, [ 'policy_version' => 1 ], false );
         update_option( Cache_Enabler_Compatibility::OPTION_NAME, [ 'policy_version' => 1 ], false );
         update_option( WP_Fastest_Cache_Compatibility::OPTION_NAME, [ 'policy_version' => 1 ], false );
+        update_option( WP_Rocket_Compatibility::OPTION_NAME, [ 'policy_version' => 1 ], false );
 
         $unrelated = directorist_page_cache_cleanup_external_compatibility( 'akismet/akismet.php', false, $cleanup );
         $wpsc      = directorist_page_cache_cleanup_external_compatibility( 'wp-super-cache/wp-cache.php', false, $cleanup );
@@ -84,15 +89,26 @@ final class Directorist_Page_Cache_Built_In_Bootstrap_Test extends WP_UnitTestCa
                 return [ 'success' => true, 'code' => 'configuration_removed' ];
             }
         );
+        $rocket    = directorist_page_cache_cleanup_external_compatibility(
+            'wp-rocket/wp-rocket.php',
+            false,
+            static function () {
+                WP_Rocket_Compatibility::reset();
+
+                return [ 'success' => true, 'code' => 'configuration_removed' ];
+            }
+        );
 
         $this->assertSame( 'compatibility_not_required', $unrelated['code'] );
         $this->assertSame( 'configuration_removed', $wpsc['code'] );
         $this->assertSame( 'configuration_removed', $litespeed['code'] );
         $this->assertSame( 'configuration_removed', $enabler['code'] );
         $this->assertSame( 'configuration_removed', $fastest['code'] );
+        $this->assertSame( 'configuration_removed', $rocket['code'] );
         $this->assertSame( [], LiteSpeed_Compatibility::current() );
         $this->assertSame( [], Cache_Enabler_Compatibility::current() );
         $this->assertSame( [], WP_Fastest_Cache_Compatibility::current() );
+        $this->assertSame( [], WP_Rocket_Compatibility::current() );
         $this->assertSame( 1, $calls );
     }
 
@@ -111,7 +127,7 @@ final class Directorist_Page_Cache_Built_In_Bootstrap_Test extends WP_UnitTestCa
         add_filter( 'directorist_page_cache_allow_runtime_mutation', $filter, 10, 2 );
 
         try {
-            foreach ( [ 'wp-super-cache', 'cache-enabler', 'wp-fastest-cache', 'litespeed-cache' ] as $provider ) {
+            foreach ( [ 'wp-super-cache', 'cache-enabler', 'wp-fastest-cache', 'wp-rocket', 'litespeed-cache' ] as $provider ) {
                 $result = directorist_page_cache_sync_external_compatibility(
                     [
                         'state'    => 'external',
@@ -125,7 +141,51 @@ final class Directorist_Page_Cache_Built_In_Bootstrap_Test extends WP_UnitTestCa
             remove_filter( 'directorist_page_cache_allow_runtime_mutation', $filter, 10 );
         }
 
-        $this->assertSame( [ 'wpsc_sync', 'cache_enabler_sync', 'wpfc_sync', 'litespeed_sync' ], $mutations );
+        $this->assertSame( [ 'wpsc_sync', 'cache_enabler_sync', 'wpfc_sync', 'wp_rocket_sync', 'litespeed_sync' ], $mutations );
+    }
+
+    public function test_wp_rocket_finalizer_removes_only_its_empty_deactivation_remnant() {
+        $empty          = wp_tempnam( 'directorist-wp-rocket-empty.php' );
+        $foreign        = wp_tempnam( 'directorist-foreign-dropin.php' );
+        $symlink_target = wp_tempnam( 'directorist-symlink-target.php' );
+        $symlink        = wp_tempnam( 'directorist-symlink-dropin.php' );
+        $rocket_config  = wp_tempnam( 'directorist-wp-rocket-config.php' );
+        $foreign_config = wp_tempnam( 'directorist-foreign-config.php' );
+        file_put_contents( $empty, '' );
+        file_put_contents( $foreign, "<?php\n// foreign cache\n" );
+        file_put_contents( $symlink_target, "<?php\n// symlink target\n" );
+        unlink( $symlink );
+        symlink( $symlink_target, $symlink );
+        file_put_contents( $rocket_config, "<?php\ndefine( 'WP_CACHE', false ); // Added by WP Rocket\n// User configuration.\n" );
+        file_put_contents( $foreign_config, "<?php\ndefine( 'WP_CACHE', false ); // Managed elsewhere\n" );
+
+        $unrelated = directorist_page_cache_finalize_wp_rocket_deactivation( 'akismet/akismet.php', false, $empty, null, $foreign_config );
+        $this->assertSame( 'provider_not_matched', $unrelated['code'] );
+        $this->assertFileExists( $empty );
+
+        $retained = directorist_page_cache_finalize_wp_rocket_deactivation( 'wp-rocket/wp-rocket.php', false, $foreign, null, $foreign_config );
+        $this->assertSame( 'remnants_absent', $retained['code'] );
+        $this->assertFileExists( $foreign );
+        $this->assertStringContainsString( 'Managed elsewhere', file_get_contents( $foreign_config ) );
+
+        $retained_symlink = directorist_page_cache_finalize_wp_rocket_deactivation( 'wp-rocket/wp-rocket.php', false, $symlink, null, $foreign_config );
+        $this->assertSame( 'remnants_absent', $retained_symlink['code'] );
+        $this->assertTrue( is_link( $symlink ) );
+        $this->assertStringContainsString( 'symlink target', file_get_contents( $symlink_target ) );
+
+        add_filter( 'directorist_page_cache_allow_runtime_mutation', '__return_true', PHP_INT_MAX );
+        $removed = directorist_page_cache_finalize_wp_rocket_deactivation( 'wp-rocket/wp-rocket.php', false, $empty, null, $rocket_config );
+        remove_filter( 'directorist_page_cache_allow_runtime_mutation', '__return_true', PHP_INT_MAX );
+        $this->assertSame( 'wp_rocket_remnants_removed', $removed['code'] );
+        $this->assertFileDoesNotExist( $empty );
+        $this->assertStringNotContainsString( 'WP_CACHE', file_get_contents( $rocket_config ) );
+        $this->assertStringContainsString( 'User configuration', file_get_contents( $rocket_config ) );
+
+        unlink( $foreign );
+        unlink( $symlink );
+        unlink( $symlink_target );
+        unlink( $rocket_config );
+        unlink( $foreign_config );
     }
 
     public function test_cron_boot_registers_cleanup_healthcheck_schedule_before_rescheduling() {

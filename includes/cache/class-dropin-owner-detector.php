@@ -76,7 +76,7 @@ class Dropin_Owner_Detector {
             $owner = 'wp-super-cache';
         } elseif ( false !== stripos( $content, 'cache_enabler_constants_file' ) || false !== stripos( $content, 'CACHE_ENABLER_DIR' ) ) {
             $owner = 'cache-enabler';
-        } elseif ( false !== stripos( $content, 'WP_ROCKET_PATH' ) || false !== stripos( $content, 'WP Rocket' ) ) {
+        } elseif ( false !== stripos( $content, 'WP_ROCKET_PATH' ) || false !== stripos( $content, 'WP_ROCKET_ADVANCED_CACHE' ) || false !== stripos( $content, 'WP_Rocket\\Buffer\\Cache' ) || false !== stripos( $content, 'WP Rocket' ) ) {
             $owner = 'wp-rocket';
         } elseif ( false !== stripos( $content, 'DIRECTORIST PAGE CACHE DROPIN' ) ) {
             $owner = 'directorist-cache';

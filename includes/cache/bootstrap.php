@@ -52,6 +52,8 @@ namespace Directorist\Cache {
                 'Directorist\\Cache\\Provider_Selection'        => 'class-provider-selection.php',
                 'Directorist\\Cache\\WP_Fastest_Cache_Provider' => 'providers/class-wp-fastest-cache-provider.php',
                 'Directorist\\Cache\\WP_Rocket_Provider'        => 'providers/class-wp-rocket-provider.php',
+                'Directorist\\Cache\\WP_Rocket_Compatibility'   => 'class-wp-rocket-compatibility.php',
+                'Directorist\\Cache\\WP_Rocket_Early_Guard'     => 'class-wp-rocket-early-guard.php',
                 'Directorist\\Cache\\WP_Super_Cache_Provider'   => 'providers/class-wp-super-cache-provider.php',
                 'Directorist\\Cache\\WP_Super_Cache_Compatibility' => 'class-wp-super-cache-compatibility.php',
             ];
@@ -165,6 +167,7 @@ namespace {
     use Directorist\Cache\Provider_Registry;
     use Directorist\Cache\Warm_Background_Process;
     use Directorist\Cache\WP_Fastest_Cache_Compatibility;
+    use Directorist\Cache\WP_Rocket_Compatibility;
     use Directorist\Cache\WP_Super_Cache_Compatibility;
 
     if ( ! function_exists( 'directorist_page_cache_refresh_token' ) ) {
@@ -464,6 +467,19 @@ namespace {
 
             if ( ! $compatibility instanceof WP_Super_Cache_Compatibility ) {
                 $compatibility = new WP_Super_Cache_Compatibility();
+            }
+
+            return $compatibility;
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_wp_rocket_compatibility' ) ) {
+        /** @return WP_Rocket_Compatibility */
+        function directorist_page_cache_wp_rocket_compatibility() {
+            static $compatibility;
+
+            if ( ! $compatibility instanceof WP_Rocket_Compatibility ) {
+                $compatibility = new WP_Rocket_Compatibility();
             }
 
             return $compatibility;
@@ -1486,6 +1502,7 @@ namespace {
             foreach ( [
                 'cache-enabler/cache-enabler.php',
                 'wp-fastest-cache/wpFastestCache.php',
+                'wp-rocket/wp-rocket.php',
                 'litespeed-cache/litespeed-cache.php',
             ] as $plugin ) {
                 directorist_page_cache_cleanup_external_compatibility( $plugin );
@@ -1511,6 +1528,7 @@ namespace {
                 'wp-super-cache/wp-cache.php'         => [ 'current' => [ 'Directorist\\Cache\\WP_Super_Cache_Compatibility', 'current' ], 'mutation' => 'wpsc_deactivate', 'service' => 'directorist_page_cache_wp_super_cache_compatibility' ],
                 'cache-enabler/cache-enabler.php'     => [ 'current' => [ 'Directorist\\Cache\\Cache_Enabler_Compatibility', 'current' ], 'mutation' => 'cache_enabler_deactivate', 'service' => 'directorist_page_cache_cache_enabler_compatibility' ],
                 'wp-fastest-cache/wpFastestCache.php' => [ 'current' => [ 'Directorist\\Cache\\WP_Fastest_Cache_Compatibility', 'current' ], 'mutation' => 'wpfc_deactivate', 'service' => 'directorist_page_cache_wp_fastest_cache_compatibility' ],
+                'wp-rocket/wp-rocket.php'             => [ 'current' => [ 'Directorist\\Cache\\WP_Rocket_Compatibility', 'current' ], 'mutation' => 'wp_rocket_deactivate', 'service' => 'directorist_page_cache_wp_rocket_compatibility' ],
                 'litespeed-cache/litespeed-cache.php' => [ 'current' => [ 'Directorist\\Cache\\LiteSpeed_Compatibility', 'current' ], 'mutation' => 'litespeed_deactivate', 'service' => 'directorist_page_cache_litespeed_compatibility' ],
             ];
 
@@ -1576,6 +1594,98 @@ namespace {
         }
     }
 
+    if ( ! function_exists( 'directorist_page_cache_cleanup_wp_rocket_before_deactivation' ) ) {
+        /** @return array */
+        function directorist_page_cache_cleanup_wp_rocket_before_deactivation( $network_wide = false ) {
+            return directorist_page_cache_cleanup_external_compatibility( 'wp-rocket/wp-rocket.php', $network_wide );
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_finalize_wp_rocket_deactivation' ) ) {
+        /**
+         * Remove only the artifacts WP Rocket owns and leaves after deactivation.
+         *
+         * @param string        $plugin Plugin basename.
+         * @param bool          $network_wide Network deactivation state.
+         * @param string|null   $path Explicit test path.
+         * @param callable|null $remover Explicit drop-in test boundary.
+         * @param string|null   $config_path Explicit wp-config test path.
+         * @param callable|null $config_writer Explicit wp-config test boundary.
+         * @return array
+         */
+        function directorist_page_cache_finalize_wp_rocket_deactivation( $plugin, $network_wide = false, $path = null, $remover = null, $config_path = null, $config_writer = null ) {
+            unset( $network_wide );
+
+            if ( 'wp-rocket/wp-rocket.php' !== (string) $plugin ) {
+                return [ 'success' => true, 'code' => 'provider_not_matched' ];
+            }
+
+            $path        = null === $path ? WP_CONTENT_DIR . '/advanced-cache.php' : (string) $path;
+            $config_path = null === $config_path ? directorist_page_cache_builtin_wp_config_path() : (string) $config_path;
+            clearstatcache( true, $path );
+
+            $remove_dropin = is_file( $path ) && ! is_link( $path ) && 0 === (int) filesize( $path );
+            $config_source = ! is_link( $config_path ) && is_file( $config_path ) && is_readable( $config_path ) ? file_get_contents( $config_path ) : false;
+            $rocket_line   = '~^[\t ]*define\(\s*([\'\"])WP_CACHE\1\s*,\s*false\s*\);\s*//\s*Added by WP Rocket[.\t ]*\r?\n?~mi';
+            $line_count    = is_string( $config_source ) ? preg_match_all( $rocket_line, $config_source ) : 0;
+            $clean_config  = 1 === $line_count;
+
+            if ( ! $remove_dropin && ! $clean_config ) {
+                return [ 'success' => true, 'code' => 'remnants_absent' ];
+            }
+
+            if ( ! apply_filters( 'directorist_page_cache_allow_runtime_mutation', true, 'wp_rocket_finalize_deactivation' ) ) {
+                return [ 'success' => true, 'code' => 'runtime_mutation_disabled' ];
+            }
+
+            if ( $remove_dropin ) {
+                $remover = is_callable( $remover ) ? $remover : 'unlink';
+
+                try {
+                    $removed = (bool) call_user_func( $remover, $path );
+                } catch ( \Throwable $exception ) {
+                    unset( $exception );
+                    $removed = false;
+                }
+
+                if ( ! $removed ) {
+                    return [ 'success' => false, 'code' => 'empty_dropin_remove_failed' ];
+                }
+            }
+
+            if ( $clean_config ) {
+                $updated = preg_replace( $rocket_line, '', $config_source, 1 );
+
+                if ( ! is_string( $updated ) ) {
+                    return [ 'success' => false, 'code' => 'wp_config_cleanup_failed' ];
+                }
+
+                if ( ! is_callable( $config_writer ) ) {
+                    $config_writer = static function ( $target, $source ) {
+                        $result = ( new Built_In_Atomic_Writer() )->write( $target, $source );
+
+                        return ! empty( $result['success'] );
+                    };
+                }
+
+                try {
+                    $written = (bool) call_user_func( $config_writer, $config_path, $updated );
+                } catch ( \Throwable $exception ) {
+                    unset( $exception );
+                    $written = false;
+                }
+
+                if ( ! $written ) {
+                    return [ 'success' => false, 'code' => 'wp_config_cleanup_failed' ];
+                }
+            }
+
+            Dropin_Owner_Detector::invalidate_persistent_cache();
+
+            return [ 'success' => true, 'code' => 'wp_rocket_remnants_removed' ];
+        }
+    }
+
     if ( ! function_exists( 'directorist_page_cache_sync_external_compatibility' ) ) {
         /**
          * Synchronize selected external-provider policy outside public requests.
@@ -1592,6 +1702,7 @@ namespace {
                 'wp-super-cache'   => [ 'plugin' => 'wp-super-cache/wp-cache.php', 'service' => 'directorist_page_cache_wp_super_cache_compatibility', 'mutation' => 'wpsc_sync' ],
                 'cache-enabler'    => [ 'plugin' => 'cache-enabler/cache-enabler.php', 'service' => 'directorist_page_cache_cache_enabler_compatibility', 'mutation' => 'cache_enabler_sync' ],
                 'wp-fastest-cache' => [ 'plugin' => 'wp-fastest-cache/wpFastestCache.php', 'service' => 'directorist_page_cache_wp_fastest_cache_compatibility', 'mutation' => 'wpfc_sync' ],
+                'wp-rocket'        => [ 'plugin' => 'wp-rocket/wp-rocket.php', 'service' => 'directorist_page_cache_wp_rocket_compatibility', 'mutation' => 'wp_rocket_sync' ],
                 'litespeed-cache'  => [ 'plugin' => 'litespeed-cache/litespeed-cache.php', 'service' => 'directorist_page_cache_litespeed_compatibility', 'mutation' => 'litespeed_sync' ],
             ];
 
@@ -2060,6 +2171,10 @@ namespace {
                     directorist_page_cache_litespeed_compatibility()->register();
                 }
 
+                if ( 'wp-rocket' === $provider->get_id() ) {
+                    directorist_page_cache_wp_rocket_compatibility()->register();
+                }
+
                 if ( 'directorist-cache' === $provider->get_id() ) {
                     directorist_page_cache_builtin_engine_instance()->register_wordpress_hooks();
                 }
@@ -2099,8 +2214,10 @@ namespace {
     add_action( 'deactivate_wp-super-cache/wp-cache.php', 'directorist_page_cache_cleanup_wp_super_cache_before_deactivation', 1, 1 );
     add_action( 'deactivate_cache-enabler/cache-enabler.php', 'directorist_page_cache_cleanup_cache_enabler_before_deactivation', 1, 1 );
     add_action( 'deactivate_wp-fastest-cache/wpFastestCache.php', 'directorist_page_cache_cleanup_wp_fastest_cache_before_deactivation', 1, 1 );
+    add_action( 'deactivate_wp-rocket/wp-rocket.php', 'directorist_page_cache_cleanup_wp_rocket_before_deactivation', 1, 1 );
     add_action( 'deactivate_litespeed-cache/litespeed-cache.php', 'directorist_page_cache_cleanup_litespeed_before_deactivation', 1, 1 );
     add_action( 'deactivated_plugin', 'directorist_page_cache_cleanup_external_compatibility', 5, 2 );
+    add_action( 'deactivated_plugin', 'directorist_page_cache_finalize_wp_rocket_deactivation', 10, 2 );
     add_action( 'deactivated_plugin', 'directorist_page_cache_schedule_lifecycle_reconciliation', 20, 2 );
     add_action( 'deleted_plugin', 'directorist_page_cache_schedule_lifecycle_reconciliation', 20, 2 );
     add_action( 'upgrader_process_complete', 'directorist_page_cache_schedule_lifecycle_reconciliation', 20, 2 );

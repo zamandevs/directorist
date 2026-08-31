@@ -96,6 +96,49 @@ final class Query_Schema_Resolver {
         return $this->normalize_schema( $schema, $directory_ids );
     }
 
+    /**
+     * Return the bounded union WP Rocket needs when generating global query rules.
+     *
+     * Runtime route normalization remains directory-specific. This union is used
+     * only by providers whose generated configuration cannot vary by route.
+     *
+     * @return string[]
+     */
+    public function all_public_arguments() {
+        $directory_ids = get_terms(
+            [
+                'taxonomy'   => ATBDP_DIRECTORY_TYPE,
+                'hide_empty' => false,
+                'fields'     => 'ids',
+            ]
+        );
+        $directory_ids = is_wp_error( $directory_ids ) ? [] : $this->valid_directory_ids( $directory_ids );
+        $base          = [
+            'arguments'        => $this->universal_arguments(),
+            'nested_arguments' => [],
+        ];
+
+        foreach ( $directory_ids as $directory_id ) {
+            $base = $this->merge_schema( $base, $this->directory_schema( $directory_id ) );
+        }
+
+        $arguments = [];
+
+        foreach ( $this->collection_routes as $route_type ) {
+            $schema          = apply_filters( 'directorist_page_cache_query_schema', $base, $route_type, $directory_ids, [] );
+            $schema          = is_array( $schema ) ? $schema : [];
+            $route_arguments = isset( $schema['arguments'] ) && is_array( $schema['arguments'] ) ? $schema['arguments'] : [];
+            $route_arguments = apply_filters( 'directorist_page_cache_query_allowlist', $route_arguments, $route_type );
+            $arguments       = array_merge( $arguments, is_array( $route_arguments ) ? $route_arguments : [] );
+        }
+
+        $arguments = array_map( 'strval', $arguments );
+        $arguments = array_values( array_unique( array_filter( $arguments, 'strlen' ) ) );
+        sort( $arguments, SORT_STRING );
+
+        return $arguments;
+    }
+
     /** @return string[] */
     private function universal_arguments() {
         return [
