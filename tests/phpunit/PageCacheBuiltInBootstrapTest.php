@@ -5,6 +5,7 @@
 
 use Directorist\Cache\Built_In\Lifecycle;
 use Directorist\Cache\Built_In\Cleanup_Background_Process;
+use Directorist\Cache\LiteSpeed_Compatibility;
 use Directorist\Cache\Performance_Settings;
 use Directorist\Cache\Warm_Background_Process;
 
@@ -16,6 +17,7 @@ final class Directorist_Page_Cache_Built_In_Bootstrap_Test extends WP_UnitTestCa
         wp_clear_scheduled_hook( 'directorist_page_cache_daily_cleanup' );
         wp_clear_scheduled_hook( 'directorist_page_cache_refresh_due_entries' );
         directorist_page_cache_builtin_cleanup_process()->reset();
+        LiteSpeed_Compatibility::reset();
 
         parent::tearDown();
     }
@@ -34,7 +36,7 @@ final class Directorist_Page_Cache_Built_In_Bootstrap_Test extends WP_UnitTestCa
         $this->assertFalse( has_action( 'init', 'directorist_page_cache_activate_wp_super_cache_compatibility' ) );
     }
 
-    public function test_external_compatibility_cleanup_targets_only_wp_super_cache_deactivation() {
+    public function test_external_compatibility_cleanup_targets_supported_provider_state_only() {
         $calls   = 0;
         $cleanup = static function () use ( &$calls ) {
             ++$calls;
@@ -42,11 +44,16 @@ final class Directorist_Page_Cache_Built_In_Bootstrap_Test extends WP_UnitTestCa
             return [ 'success' => true, 'code' => 'configuration_removed' ];
         };
 
+        update_option( LiteSpeed_Compatibility::OPTION_NAME, [ 'policy_version' => 1 ], false );
+
         $unrelated = directorist_page_cache_cleanup_external_compatibility( 'akismet/akismet.php', false, $cleanup );
         $wpsc      = directorist_page_cache_cleanup_external_compatibility( 'wp-super-cache/wp-cache.php', false, $cleanup );
+        $litespeed = directorist_page_cache_cleanup_external_compatibility( 'litespeed-cache/litespeed-cache.php', false, $cleanup );
 
         $this->assertSame( 'compatibility_not_required', $unrelated['code'] );
         $this->assertSame( 'configuration_removed', $wpsc['code'] );
+        $this->assertSame( 'configuration_removed', $litespeed['code'] );
+        $this->assertSame( [], LiteSpeed_Compatibility::current() );
         $this->assertSame( 1, $calls );
     }
 

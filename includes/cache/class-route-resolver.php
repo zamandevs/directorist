@@ -6,6 +6,11 @@ namespace Directorist\Cache;
  * Positively identifies public frontend routes owned by Directorist.
  */
 final class Route_Resolver {
+    const REQUEST_PUBLIC    = 'public';
+    const REQUEST_PRIVATE   = 'private';
+    const REQUEST_REJECTED  = 'rejected';
+    const REQUEST_UNRELATED = 'unrelated';
+
     /** @var Query_Normalizer */
     private $query_normalizer;
 
@@ -135,11 +140,33 @@ final class Route_Resolver {
      * @return Route_Identity|null
      */
     public function resolve( array $state = null ) {
+        $result = $this->resolve_request( $state );
+
+        return $result['identity'];
+    }
+
+    /**
+     * Distinguish an owned route rejected by cache-key policy from an unrelated route.
+     *
+     * @param array|null $state Resolved WordPress state, or null for globals.
+     * @return string
+     */
+    public function classify_request( array $state = null ) {
+        $result = $this->resolve_request( $state );
+
+        return $result['classification'];
+    }
+
+    /**
+     * @param array|null $state Resolved WordPress state, or null for globals.
+     * @return array{classification:string,identity:Route_Identity|null}
+     */
+    private function resolve_request( array $state = null ) {
         $state   = null === $state ? $this->current_state() : $this->normalize_state( $state );
         $surface = $this->page_builder_surface( $state );
 
         if ( $this->is_private_configured_page( $state ) || $this->has_private_content( $state['post_content'] ) || $surface['private'] ) {
-            return null;
+            return $this->request_result( self::REQUEST_PRIVATE );
         }
 
         $identity_data = $this->resolve_core_identity( $state );
@@ -164,7 +191,7 @@ final class Route_Resolver {
         $identity_data = apply_filters( 'directorist_page_cache_route_identity', $identity_data, $state );
 
         if ( ! is_array( $identity_data ) || empty( $identity_data['route_type'] ) ) {
-            return null;
+            return $this->request_result( self::REQUEST_UNRELATED );
         }
 
         $route_type    = sanitize_key( $identity_data['route_type'] );
@@ -172,7 +199,7 @@ final class Route_Resolver {
         $query         = $this->query_normalizer->normalize( $route_type, $state['query_args'], $state['raw_query'], $directory_ids );
 
         if ( ! $query->is_valid() ) {
-            return null;
+            return $this->request_result( self::REQUEST_REJECTED );
         }
 
         $variation   = $query->get_args();
@@ -187,7 +214,7 @@ final class Route_Resolver {
             }
         }
 
-        return new Route_Identity(
+        $identity = new Route_Identity(
             [
                 'site_id'     => $state['site_id'],
                 'home_url'    => $state['home_url'],
@@ -200,6 +227,20 @@ final class Route_Resolver {
                 'language'    => $state['language'],
             ]
         );
+
+        return $this->request_result( self::REQUEST_PUBLIC, $identity );
+    }
+
+    /**
+     * @param string              $classification Stable request classification.
+     * @param Route_Identity|null $identity Resolved public identity.
+     * @return array{classification:string,identity:Route_Identity|null}
+     */
+    private function request_result( $classification, Route_Identity $identity = null ) {
+        return [
+            'classification' => (string) $classification,
+            'identity'       => $identity,
+        ];
     }
 
     /**

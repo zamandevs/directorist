@@ -6,8 +6,9 @@ namespace Directorist\Cache;
  * Keeps WP Super Cache's early configuration aligned with Directorist policy.
  */
 final class WP_Super_Cache_Compatibility {
-    const OPTION_NAME    = 'directorist_page_cache_wpsc_compatibility_v1';
-    const MANAGED_MARKER = '(?#directorist-page-cache)';
+    const OPTION_NAME            = 'directorist_page_cache_wpsc_compatibility_v1';
+    const MANAGED_MARKER         = '(?#directorist-page-cache)';
+    const REQUEST_POLICY_VERSION = 2;
 
     /** @var callable */
     private $read_config;
@@ -88,13 +89,7 @@ final class WP_Super_Cache_Compatibility {
         };
         $this->clock               = isset( $runtime['clock'] ) && is_callable( $runtime['clock'] ) ? $runtime['clock'] : 'time';
         $this->route_probe         = isset( $runtime['route_probe'] ) && is_callable( $runtime['route_probe'] ) ? $runtime['route_probe'] : static function () {
-            $resolver = new Route_Resolver();
-
-            if ( $resolver->is_private_request() ) {
-                return 'private';
-            }
-
-            return $resolver->resolve() instanceof Route_Identity ? 'public' : 'other';
+            return ( new Route_Resolver() )->classify_request();
         };
         $this->begin_capture       = isset( $runtime['begin_capture'] ) && is_callable( $runtime['begin_capture'] ) ? $runtime['begin_capture'] : 'directorist_page_cache_begin_response_capture';
         $this->finish_capture      = isset( $runtime['finish_capture'] ) && is_callable( $runtime['finish_capture'] ) ? $runtime['finish_capture'] : 'directorist_page_cache_finish_response_capture';
@@ -164,7 +159,15 @@ final class WP_Super_Cache_Compatibility {
 
         $actual   = $this->read();
         $safe     = ! $failed && $this->configuration_matches( $actual, $desired );
-        $hash     = hash( 'sha256', wp_json_encode( $desired ) );
+        $hash     = hash(
+            'sha256',
+            wp_json_encode(
+                [
+                    'policy_version' => self::REQUEST_POLICY_VERSION,
+                    'configuration'  => $desired,
+                ]
+            )
+        );
         $previous = self::current();
         $applied  = isset( $previous['applied_hash'] ) ? (string) $previous['applied_hash'] : '';
 
@@ -195,6 +198,7 @@ final class WP_Super_Cache_Compatibility {
             'managed_vary'    => array_keys( $policy['vary'] ),
             'managed_cookies' => $this->managed_cookies( $policy ),
             'managed_plugin'  => (string) call_user_func( $this->plugin_path ),
+            'policy_version'  => self::REQUEST_POLICY_VERSION,
             'checked_at'      => $now,
             'changed_at'      => $this->changed_at( $previous, $state, $code, $now ),
         ];
@@ -274,6 +278,12 @@ final class WP_Super_Cache_Compatibility {
             call_user_func( $this->deny_cache, 'private_route' );
 
             return [ 'success' => true, 'code' => 'private_route' ];
+        }
+
+        if ( 'rejected' === $route ) {
+            call_user_func( $this->deny_cache, 'rejected_route' );
+
+            return [ 'success' => true, 'code' => 'rejected_route' ];
         }
 
         if ( 'public' !== $route ) {
@@ -580,12 +590,13 @@ final class WP_Super_Cache_Compatibility {
      * @return void
      */
     private function mark_applied( $hash ) {
-        $status                 = self::current();
-        $status['applied_hash'] = (string) $hash;
-        $status['code']         = 'configuration_ready';
-        $status['safe']         = true;
-        $status['state']        = 'optimized';
-        $status['checked_at']   = (int) call_user_func( $this->clock );
+        $status                   = self::current();
+        $status['applied_hash']   = (string) $hash;
+        $status['code']           = 'configuration_ready';
+        $status['safe']           = true;
+        $status['state']          = 'optimized';
+        $status['policy_version'] = self::REQUEST_POLICY_VERSION;
+        $status['checked_at']     = (int) call_user_func( $this->clock );
         update_option( self::OPTION_NAME, $status, false );
     }
 }
