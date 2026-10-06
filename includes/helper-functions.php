@@ -2231,6 +2231,81 @@ if ( ! function_exists( 'tract_duplicate_review' ) ) {
     }
 }
 
+function directorist_search_taxonomy_cache_version() {
+    $group   = 'directorist_search_taxonomy';
+    $version = wp_cache_get( 'directory_term_version', $group );
+
+    if ( false === $version ) {
+        $version = '1';
+        wp_cache_set( 'directory_term_version', $version, $group );
+    }
+
+    return (string) $version;
+}
+
+function directorist_invalidate_search_taxonomy_directory_cache( $meta_ids, $term_id, $meta_key ) {
+    unset( $meta_ids, $term_id );
+
+    if ( '_directory_type' !== $meta_key && 0 !== strpos( (string) $meta_key, '_directory_type_' ) ) {
+        return;
+    }
+
+    wp_cache_set( 'directory_term_version', (string) microtime( true ), 'directorist_search_taxonomy' );
+}
+
+add_action( 'added_term_meta', 'directorist_invalidate_search_taxonomy_directory_cache', 10, 3 );
+add_action( 'updated_term_meta', 'directorist_invalidate_search_taxonomy_directory_cache', 10, 3 );
+add_action( 'deleted_term_meta', 'directorist_invalidate_search_taxonomy_directory_cache', 10, 3 );
+
+function directorist_search_taxonomy_directory_term_ids( $directory_id, $taxonomy_id ) {
+    global $wpdb;
+
+    $directory_id = absint( $directory_id );
+    $taxonomy_id  = sanitize_key( $taxonomy_id );
+
+    if ( ! $directory_id || ! taxonomy_exists( $taxonomy_id ) ) {
+        return null;
+    }
+
+    if ( ! apply_filters( 'directorist_use_search_taxonomy_directory_index', true, $directory_id, $taxonomy_id ) ) {
+        return null;
+    }
+
+    $version   = directorist_search_taxonomy_cache_version();
+    $cache_key = 'directory_terms_' . md5( $directory_id . '|' . $taxonomy_id . '|' . $version );
+    $term_ids  = wp_cache_get( $cache_key, 'directorist_search_taxonomy' );
+
+    if ( false === $term_ids ) {
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT tm.term_id, tm.meta_value
+                FROM {$wpdb->termmeta} tm
+                INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = tm.term_id
+                WHERE tt.taxonomy = %s AND tm.meta_key = '_directory_type'",
+                $taxonomy_id
+            )
+        );
+
+        if ( ! is_array( $rows ) ) {
+            return null;
+        }
+
+        $term_ids = [];
+        foreach ( $rows as $row ) {
+            $directories = wp_parse_id_list( (array) maybe_unserialize( $row->meta_value ) );
+
+            if ( in_array( $directory_id, $directories, true ) ) {
+                $term_ids[] = (int) $row->term_id;
+            }
+        }
+
+        $term_ids = array_values( array_unique( array_filter( $term_ids ) ) );
+        wp_cache_set( $cache_key, $term_ids, 'directorist_search_taxonomy' );
+    }
+
+    return apply_filters( 'directorist_search_taxonomy_directory_term_ids', $term_ids, $directory_id, $taxonomy_id );
+}
+
 function search_category_location_filter( $settings, $taxonomy_id, $prefix = '' ) {
     $lazy_load_taxonomy_fields = false;
 
@@ -2269,6 +2344,18 @@ function search_category_location_filter( $settings, $taxonomy_id, $prefix = '' 
         $arg = apply_filters( 'atbdp_search_listing_category_argument', $args );
     } else {
         $arg = apply_filters( 'atbdp_search_listing_location_argument', $args );
+    }
+
+    $directory_term_ids = is_scalar( $settings['listing_type'] )
+        ? directorist_search_taxonomy_directory_term_ids( $settings['listing_type'], $taxonomy_id )
+        : null;
+
+    if ( is_array( $directory_term_ids ) ) {
+        if ( empty( $directory_term_ids ) ) {
+            return '';
+        }
+
+        $arg['include'] = $directory_term_ids;
     }
 
     $arg['taxonomy'] = $taxonomy_id;
