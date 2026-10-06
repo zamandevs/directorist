@@ -71,6 +71,15 @@ final class Response_Validator {
             return $this->result( false, 'private_cache_control' );
         }
 
+        foreach ( isset( $normalized['vary'] ) ? explode( ',', $normalized['vary'] ) : [] as $dimension ) {
+            $dimension = strtolower( trim( $dimension ) );
+
+            // Encoding is applied to the stored plain HTML by the HTTP server.
+            if ( '' !== $dimension && 'accept-encoding' !== $dimension ) {
+                return $this->result( false, 'unsupported_vary' );
+            }
+        }
+
         $content_type = isset( $normalized['content-type'] ) ? strtolower( $normalized['content-type'] ) : '';
 
         if ( 0 !== strpos( $content_type, 'text/html' ) && 0 !== strpos( $content_type, 'application/xhtml+xml' ) ) {
@@ -85,6 +94,10 @@ final class Response_Validator {
 
         if ( isset( $normalized['content-language'] ) ) {
             $safe_headers['content-language'] = $normalized['content-language'];
+        }
+
+        if ( ! empty( $normalized['vary'] ) ) {
+            $safe_headers['vary'] = 'Accept-Encoding';
         }
 
         return $this->result( true, 'accepted', $safe_headers );
@@ -110,7 +123,9 @@ final class Response_Validator {
                 return false;
             }
 
-            $normalized[ $name ] = $value;
+            $normalized[ $name ] = isset( $normalized[ $name ] ) && in_array( $name, [ 'cache-control', 'vary' ], true )
+                ? $normalized[ $name ] . ', ' . $value
+                : $value;
         }
 
         return $normalized;

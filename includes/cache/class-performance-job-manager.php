@@ -514,16 +514,16 @@ final class Performance_Job_Manager {
                 }
             }
 
-            if ( empty( $result['success'] ) ) {
-                return array_merge( $result, [ 'queued' => $queued, 'accepted_urls' => $accepted_urls ] );
-            }
-
-            $chunk_queued   = isset( $result['queued'] ) ? max( 0, (int) $result['queued'] ) : count( $chunk );
+            $chunk_queued   = isset( $result['queued'] ) ? max( 0, (int) $result['queued'] ) : ( empty( $result['success'] ) ? 0 : count( $chunk ) );
             $chunk_accepted = isset( $result['accepted_urls'] ) && is_array( $result['accepted_urls'] )
                 ? array_values( array_filter( array_map( 'esc_url_raw', $result['accepted_urls'] ) ) )
                 : array_slice( $chunk, 0, $chunk_queued );
             $queued        += $chunk_queued;
             $accepted_urls  = array_merge( $accepted_urls, $chunk_accepted );
+
+            if ( empty( $result['success'] ) ) {
+                return array_merge( $result, [ 'queued' => $queued, 'accepted_urls' => $accepted_urls ] );
+            }
         }
 
         return [ 'success' => true, 'code' => 'processed', 'queued' => $queued, 'accepted_urls' => $accepted_urls ];

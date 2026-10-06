@@ -161,7 +161,7 @@ class Directorist_Listing_Taxonomy {
             return $this->batched_term_counts;
         }
 
-        if ( ! apply_filters( 'directorist_use_batched_taxonomy_listing_counts', true, $this, $terms ) ) {
+        if ( $this->has_count_query_filters() || ! apply_filters( 'directorist_use_batched_taxonomy_listing_counts', true, $this, $terms ) ) {
             $this->batched_term_counts = false;
             return false;
         }
@@ -235,6 +235,60 @@ class Directorist_Listing_Taxonomy {
 
         $this->batched_term_counts = $counts;
         return $counts;
+    }
+
+    /** Raw counts cannot reproduce arbitrary existing WP_Query restrictions. */
+    protected function has_count_query_filters() {
+        global $wp_filter;
+
+        if ( is_admin() || has_filter( 'directorist_taxonomy_listing_count_query_arguments' ) ) {
+            return true;
+        }
+
+        $known = [
+            '_close_comments_for_old_posts',
+            'Directorist\\database\\Listing_Index_Query::apply_query_plan',
+            'Directorist\\Review\\Bootstrap::override_comments_pagination',
+            'ATBDP_User::restrict_listing_to_the_author',
+            'ATBDP_Listing::listing_type_search_query',
+            'ATBDP_Order::parse_query',
+            'ATBDP_GJSGeoQuery::posts_fields',
+            'ATBDP_GJSGeoQuery::posts_join',
+            'ATBDP_GJSGeoQuery::posts_where',
+            'ATBDP_GJSGeoQuery::posts_orderby',
+        ];
+        $hooks = [
+            'parse_query', 'pre_get_posts', 'parse_tax_query', 'posts_pre_query',
+            'posts_where', 'posts_join', 'posts_fields', 'posts_groupby', 'posts_distinct', 'posts_orderby', 'post_limits',
+            'posts_clauses', 'posts_clauses_request', 'posts_where_request', 'posts_join_request', 'posts_fields_request',
+            'posts_groupby_request', 'posts_distinct_request', 'posts_orderby_request', 'post_limits_request',
+            'posts_request', 'posts_results', 'the_posts', 'found_posts_query', 'found_posts',
+        ];
+
+        foreach ( $hooks as $hook ) {
+            if ( ! has_filter( $hook ) ) {
+                continue;
+            }
+
+            if ( ! isset( $wp_filter[ $hook ]->callbacks ) ) {
+                return true;
+            }
+
+            foreach ( $wp_filter[ $hook ]->callbacks as $callbacks ) {
+                foreach ( $callbacks as $callback ) {
+                    $function = $callback['function'];
+                    $name = is_array( $function )
+                        ? ( is_object( $function[0] ) ? get_class( $function[0] ) : $function[0] ) . '::' . $function[1]
+                        : $function;
+
+                    if ( ! is_string( $name ) || ! in_array( $name, $known, true ) ) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     protected function query_batched_listing_counts( array $mapping ) {

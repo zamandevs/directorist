@@ -55,6 +55,11 @@ class Listing_Author_Statistics {
         }
     }
 
+    public static function invalidate_updated_listing( $post_id, $post_after, $post_before ) {
+        self::invalidate_listing( $post_id, $post_before );
+        self::invalidate_listing( $post_id, $post_after );
+    }
+
     public static function invalidate_rating( $meta_id, $object_id, $meta_key ) {
         unset( $meta_id );
 
@@ -171,6 +176,7 @@ class Listing_Author_Statistics {
         self::$hooks_registered = true;
 
         add_action( 'save_post_' . ATBDP_POST_TYPE, [ __CLASS__, 'invalidate_listing' ], 101, 2 );
+        add_action( 'post_updated', [ __CLASS__, 'invalidate_updated_listing' ], 101, 3 );
         add_action( 'before_delete_post', [ __CLASS__, 'invalidate_listing' ], 101, 2 );
         add_action( 'added_post_meta', [ __CLASS__, 'invalidate_rating' ], 101, 3 );
         add_action( 'updated_post_meta', [ __CLASS__, 'invalidate_rating' ], 101, 3 );
