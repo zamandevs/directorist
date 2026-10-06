@@ -1120,7 +1120,7 @@ class Listings_Controller extends Posts_Controller {
 
             $term_ids = wp_parse_id_list( $clause['terms'] ?? array() );
 
-            if ( is_taxonomy_hierarchical( $clause['taxonomy'] ) ) {
+            if ( ! array_key_exists( 'include_children', $clause ) && is_taxonomy_hierarchical( $clause['taxonomy'] ) ) {
                 foreach ( $term_ids as $term_id ) {
                     $term_ids = array_merge( $term_ids, get_term_children( $term_id, $clause['taxonomy'] ) );
                 }
