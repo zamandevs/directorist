@@ -24,6 +24,11 @@ class DB {
      */
     public static function get_listings_data( $args ) {
         $args['fields'] = 'ids';
+
+        if ( empty( $args['directorist_query_purpose'] ) ) {
+            $args['directorist_query_purpose'] = 'listing_collection';
+        }
+
         Listing_Index_Query::register_hooks();
         $args      = Listing_Index_Query::prepare_args( $args );
         $query     = new WP_Query( $args );
