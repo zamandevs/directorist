@@ -152,7 +152,7 @@ final class Directorist_Page_Cache_Built_In_Inventory_Test extends TestCase {
             $metadata_path,
             json_encode(
                 [
-                    'schema'        => 1,
+                    'schema'        => \Directorist\Cache\Built_In\Cache_Storage::METADATA_SCHEMA,
                     'owner'         => 'directorist-page-cache',
                     'request_hash'  => $hash,
                     'canonical_url' => $url,

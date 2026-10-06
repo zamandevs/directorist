@@ -279,7 +279,8 @@ if ( ! function_exists( 'atbdp_get_listing_order' ) ) :
                 'post_type'                 => 'atbdp_orders',
                 'posts_per_page'            => 1,
                 'no_found_rows'             => true,
-                'orderby'                   => 'none',
+                'orderby'                   => 'date',
+                'order'                     => 'DESC',
                 'update_post_meta_cache'    => false,
                 'update_post_term_cache'    => false,
                 'directorist_query_purpose' => 'listing_order_lookup',
@@ -2394,6 +2395,14 @@ function search_category_location_filter( $settings, $taxonomy_id, $prefix = '' 
     if ( is_array( $directory_term_ids ) ) {
         if ( empty( $directory_term_ids ) ) {
             return '';
+        }
+
+        if ( ! empty( $arg['include'] ) ) {
+            $directory_term_ids = array_values( array_intersect( wp_parse_id_list( $arg['include'] ), $directory_term_ids ) );
+
+            if ( empty( $directory_term_ids ) ) {
+                return '';
+            }
         }
 
         $arg['include'] = $directory_term_ids;

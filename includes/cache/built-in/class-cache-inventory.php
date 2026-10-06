@@ -249,7 +249,7 @@ final class Cache_Inventory {
         $dependencies = isset( $metadata['generations'] ) && is_array( $metadata['generations'] ) ? $metadata['generations'] : [];
         $snapshot     = $this->generations->snapshot( array_keys( $dependencies ) );
         $now          = (int) call_user_func( $this->clock );
-        $state        = false === $snapshot || $snapshot !== $dependencies
+        $state        = Cache_Storage::METADATA_SCHEMA !== ( $metadata['schema'] ?? null ) || false === $snapshot || $snapshot !== $dependencies
             ? 'invalidated'
             : ( $now > $stale_until ? 'expired' : ( $now > $expires_at ? 'stale' : 'current' ) );
         $language     = isset( $metadata['language'] ) && is_string( $metadata['language'] ) && preg_match( '/^[a-z0-9-]{1,64}$/', $metadata['language'] ) ? $metadata['language'] : '';
