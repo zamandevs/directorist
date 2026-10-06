@@ -2355,6 +2355,14 @@ function search_category_location_filter( $settings, $taxonomy_id, $prefix = '' 
             return '';
         }
 
+        if ( ! empty( $arg['include'] ) ) {
+            $directory_term_ids = array_values( array_intersect( wp_parse_id_list( $arg['include'] ), $directory_term_ids ) );
+
+            if ( empty( $directory_term_ids ) ) {
+                return '';
+            }
+        }
+
         $arg['include'] = $directory_term_ids;
     }
 
