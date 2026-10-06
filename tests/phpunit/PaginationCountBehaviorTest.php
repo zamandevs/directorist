@@ -22,8 +22,13 @@ class Directorist_Pagination_Count_Behavior_Test extends WP_UnitTestCase {
 
     private $listing_ids = [];
 
+    private $original_screen;
+
     public function set_up() {
         parent::set_up();
+
+        $this->original_screen = get_current_screen();
+        set_current_screen( 'front' );
 
         directorist_clear_price_existence_cache();
 
@@ -103,6 +108,11 @@ class Directorist_Pagination_Count_Behavior_Test extends WP_UnitTestCase {
         );
     }
 
+    public function tear_down() {
+        $GLOBALS['current_screen'] = $this->original_screen;
+        parent::tear_down();
+    }
+
     public function test_category_count_includes_children_and_can_be_restricted_to_a_directory() {
         $this->assertSame( 3, atbdp_listings_count_by_category( $this->category_parent ) );
         $this->assertSame( 2, atbdp_listings_count_by_category( $this->category_parent, $this->directory_one ) );
@@ -146,10 +156,26 @@ class Directorist_Pagination_Count_Behavior_Test extends WP_UnitTestCase {
         );
         remove_filter( 'query', $capture );
 
+        $this->assertIsArray( $counts, $this->query_filter_diagnostics() );
         $this->assertSame( 2, $counts[ $this->category_parent ] );
         $this->assertSame( 1, $counts[ $this->category_child ] );
         $this->assertCount( 1, $queries );
         $this->assertStringContainsString( 'COUNT(DISTINCT directorist_count_rel.object_id)', $queries[0] );
+    }
+
+    private function query_filter_diagnostics() {
+        global $wp_filter;
+        $callbacks = [];
+        foreach ( $wp_filter as $hook => $filter ) {
+            if ( ! preg_match( '/^(parse_query|pre_get_posts|parse_tax_query|posts_|post_limits|the_posts|found_posts)/', $hook ) ) { continue; }
+            foreach ( $filter->callbacks as $priority ) {
+                foreach ( $priority as $callback ) {
+                    $function = $callback['function'];
+                    $callbacks[ $hook ][] = is_array( $function ) ? ( is_object( $function[0] ) ? get_class( $function[0] ) : $function[0] ) . '::' . $function[1] : ( is_string( $function ) ? $function : get_class( $function ) );
+                }
+            }
+        }
+        return wp_json_encode( [ 'is_admin' => is_admin(), 'callbacks' => $callbacks ] );
     }
 
     public function test_taxonomy_batch_count_cache_invalidates_after_relationship_mutation() {
