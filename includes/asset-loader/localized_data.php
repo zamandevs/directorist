@@ -222,6 +222,7 @@ class Localized_Data {
 
     private static function general_public_data() {
         $data = [
+            'cache_interaction_tokens' => directorist_get_cache_interaction_config(),
             'request_headers' => [
                 'Referer-Page-ID' => get_the_ID(),
             ]

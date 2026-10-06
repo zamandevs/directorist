@@ -279,7 +279,8 @@ if ( ! function_exists( 'atbdp_get_listing_order' ) ) :
                 'post_type'                 => 'atbdp_orders',
                 'posts_per_page'            => 1,
                 'no_found_rows'             => true,
-                'orderby'                   => 'none',
+                'orderby'                   => 'date',
+                'order'                     => 'DESC',
                 'update_post_meta_cache'    => false,
                 'update_post_term_cache'    => false,
                 'directorist_query_purpose' => 'listing_order_lookup',
@@ -2411,6 +2412,14 @@ function search_category_location_filter( $settings, $taxonomy_id, $prefix = '' 
             return '';
         }
 
+        if ( ! empty( $arg['include'] ) ) {
+            $directory_term_ids = array_values( array_intersect( wp_parse_id_list( $arg['include'] ), $directory_term_ids ) );
+
+            if ( empty( $directory_term_ids ) ) {
+                return '';
+            }
+        }
+
         $arg['include'] = $directory_term_ids;
     }
 
@@ -3466,6 +3475,32 @@ function directorist_get_registration_error_message( $error_code ) {
  */
 function directorist_get_nonce_key() {
     return 'directorist_nonce_' . ATBDP_VERSION;
+}
+
+/** Current-session tokens are fetched separately from public cached HTML. */
+function directorist_get_cache_interaction_tokens() {
+    return [
+        'nonce'            => wp_create_nonce( 'atbdp_nonce_action_js' ),
+        'directorist_nonce' => wp_create_nonce( directorist_get_nonce_key() ),
+        'ajax_nonce'       => wp_create_nonce( 'bdas_ajax_nonce' ),
+        'ajaxnonce'        => wp_create_nonce( 'bdas_ajax_nonce' ),
+        'rest_nonce'       => wp_create_nonce( 'wp_rest' ),
+        'login_nonce'      => wp_create_nonce( 'ajax-login-nonce' ),
+        'quick_login_nonce' => wp_create_nonce( 'directorist-quick-login-nonce' ),
+        'author_sort_nonce' => wp_create_nonce( 'directorist_author_sorting' ),
+        'comment_edit_nonce' => wp_create_nonce( 'directorist_get_comment_edit_form' ),
+        'comment_nonce'    => wp_create_nonce( 'directorist_process_comment_form' ),
+        'email_nonce'      => wp_create_nonce( 'directorist_nonce' ),
+    ];
+}
+
+/** @return array Public endpoint configuration, not personalized token values. */
+function directorist_get_cache_interaction_config() {
+    return [
+        'enabled' => ! is_admin() && function_exists( 'directorist_page_cache_is_enabled' ) && directorist_page_cache_is_enabled(),
+        'url'     => admin_url( 'admin-ajax.php' ),
+        'action'  => 'directorist_cache_interaction_tokens',
+    ];
 }
 
 /**

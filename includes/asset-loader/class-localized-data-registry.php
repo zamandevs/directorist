@@ -77,6 +77,7 @@ class Localized_Data_Registry {
 
     protected static function registry() {
         $registry = [
+            'directorist-cache-interactions'    => [ self::MODULE_BASE ],
             'directorist-global-script'         => [ self::MODULE_BASE ],
             'directorist-widgets'               => [ self::MODULE_BASE ],
             'directorist-all-listings'          => [ self::MODULE_BASE, self::MODULE_SEARCH, self::MODULE_FAVORITES, self::MODULE_REVIEWS, self::MODULE_MAP ],

@@ -56,6 +56,7 @@ if ( ! class_exists( 'ATBDP_Ajax_Handler' ) ) :
                 'directorist_send_confirmation_email'   => [ 'callback' => 'send_confirm_email', 'public' => true ],
                 'directorist_zipcode_search'            => [ 'callback' => 'zipcode_search', 'public' => true ],
                 'directorist_generate_nonce'            => [ 'callback' => 'handle_generate_nonce' ],
+                'directorist_cache_interaction_tokens'  => [ 'callback' => 'handle_cache_interaction_tokens', 'public' => true ],
                 'directorist_taxonomy_pagination'       => [ 'callback' => 'directorist_taxonomy_pagination', 'public' => true ],
                 'directorist_update_view_count'         => [ 'callback' => [ static::class, 'update_view_count' ], 'public' => true ],
                 'atbdp_reject_listing'                  => [ 'callback' => 'reject_listing' ],
@@ -111,6 +112,26 @@ if ( ! class_exists( 'ATBDP_Ajax_Handler' ) ) :
                     add_action( 'wp_ajax_nopriv_' . $action, $callback, 10, $accepted_args );
                 }
             }
+        }
+
+        public function handle_cache_interaction_tokens() {
+            nocache_headers();
+            header( 'Cache-Control: private, no-store, no-cache, must-revalidate', true );
+            header( 'X-Content-Type-Options: nosniff', true );
+
+            // This endpoint issues tokens but performs no protected operation.
+            // Reject cross-origin callers even when another plugin enables CORS.
+            $origin = isset( $_SERVER['HTTP_ORIGIN'] ) ? wp_parse_url( wp_unslash( $_SERVER['HTTP_ORIGIN'] ) ) : null;
+            $site = wp_parse_url( home_url( '/' ) );
+            if ( null !== $origin && ( ! is_array( $origin ) || empty( $origin['scheme'] ) || empty( $origin['host'] ) ||
+                strtolower( $origin['scheme'] ) !== strtolower( $site['scheme'] ) ||
+                strtolower( $origin['host'] ) !== strtolower( $site['host'] ) ||
+                ( $origin['port'] ?? ( 'https' === $origin['scheme'] ? 443 : 80 ) ) !== ( $site['port'] ?? ( 'https' === $site['scheme'] ? 443 : 80 ) )
+            ) ) {
+                wp_send_json_error( [ 'code' => 'invalid_origin' ], 403 );
+            }
+
+            wp_send_json_success( directorist_get_cache_interaction_tokens() );
         }
 
         public function directorist_taxonomy_pagination() {

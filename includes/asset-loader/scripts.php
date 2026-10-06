@@ -219,6 +219,10 @@ class Scripts {
             ],
 
             // Public JS
+            'directorist-cache-interactions' => [
+                'type' => 'js',
+                'path' => DIRECTORIST_BUILD_ASSETS . 'js/global/cache-interactions',
+            ],
             'directorist-widgets' => [
                 'type' => 'js',
                 'path' => DIRECTORIST_BUILD_ASSETS . 'js/public/widgets',
@@ -315,6 +319,14 @@ class Scripts {
                 'dep' => ['wp-element', 'wp-api-fetch'],
             ],
         ];
+
+        if ( ! is_admin() && function_exists( 'directorist_page_cache_is_enabled' ) && directorist_page_cache_is_enabled() ) {
+            foreach ( Localized_Data_Registry::get_handles() as $handle ) {
+                if ( 'directorist-cache-interactions' !== $handle && isset( $scripts[ $handle ] ) && 'js' === $scripts[ $handle ]['type'] ) {
+                    $scripts[ $handle ]['dep'] = array_values( array_unique( array_merge( $scripts[ $handle ]['dep'] ?? [ 'jquery' ], [ 'directorist-cache-interactions' ] ) ) );
+                }
+            }
+        }
 
         return apply_filters( 'directorist_scripts', $scripts );
     }
