@@ -6,6 +6,7 @@
 namespace Directorist;
 
 use \ATBDP_Permalink;
+use Directorist\Fields\Fields;
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
@@ -343,8 +344,8 @@ class Directorist_Single_Listing {
 
         $widget_name       = $data['widget_name'] ?? '';
         $base_value        = $this->get_field_value( $data );
-        $value             = $base_value;
-        $section_has_value = (bool) $base_value;
+        $value             = $this->normalize_field_render_value( $base_value, $widget_name );
+        $section_has_value = (bool) $value;
         $address           = $this->get_hydrated_meta( '_address' );
         $manual_lat        = '';
         $manual_lng        = '';
@@ -379,6 +380,33 @@ class Directorist_Single_Listing {
         $this->field_states[ $cache_key ] = apply_filters( 'directorist_single_listing_field_state', $state, $data, $this );
 
         return $this->field_states[ $cache_key ];
+    }
+
+    private function normalize_field_render_value( $value, $widget_name ) {
+        if ( ! is_array( $value ) ) {
+            return $value;
+        }
+
+        $field_type = Fields::translate_key_to_field( (string) $widget_name );
+
+        if ( ! in_array( $field_type, [ 'color_picker', 'date', 'file', 'number', 'radio', 'select', 'text', 'textarea', 'time', 'url' ], true ) ) {
+            return $value;
+        }
+
+        $values = array_values(
+            array_filter(
+                $value,
+                static function ( $item ) {
+                    return is_scalar( $item ) && '' !== (string) $item;
+                }
+            )
+        );
+
+        if ( 'textarea' === $field_type ) {
+            return implode( "\n", array_map( 'strval', $values ) );
+        }
+
+        return empty( $values ) ? '' : (string) reset( $values );
     }
 
     public function field_template( $data ) {
