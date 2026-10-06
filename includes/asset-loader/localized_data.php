@@ -12,6 +12,12 @@ use Directorist\Helper;
 class Localized_Data {
     protected static $frontend_data_loaded = false;
 
+    protected static $frontend_modules_loaded = [];
+
+    protected static $frontend_module_cache = [];
+
+    protected static $frontend_anchor = '';
+
     protected static $formgent_data_loaded = false;
 
     protected static $admin_data_loaded    = false;
@@ -28,7 +34,17 @@ class Localized_Data {
             return;
         }
 
-        self::ensure_frontend_data();
+        if ( Asset_Compatibility::should_use_legacy_localized_data() ) {
+            self::ensure_frontend_data();
+        } else {
+            self::ensure_modules( Localized_Data_Registry::MODULE_BASE, 'jquery' );
+
+            foreach ( Localized_Data_Registry::get_handles() as $handle ) {
+                if ( wp_script_is( $handle, 'enqueued' ) ) {
+                    self::ensure_handle_data( $handle );
+                }
+            }
+        }
 
         if ( wp_script_is( 'directorist-formgent-integration', 'enqueued' ) ) {
             self::ensure_formgent_data();
@@ -45,11 +61,116 @@ class Localized_Data {
             return;
         }
 
-        if ( ! $handle || ! wp_script_is( $handle, 'registered' ) || wp_script_is( $handle, 'done' ) ) {
+        $handle = self::canonical_handle( $handle );
+
+        if ( ! self::is_eligible_handle( $handle ) ) {
             return;
         }
 
-        self::$frontend_data_loaded = wp_localize_script( $handle, 'directorist', self::public_data() );
+        $target = self::is_eligible_handle( self::$frontend_anchor ) ? self::$frontend_anchor : $handle;
+        $data   = self::public_data();
+
+        if ( self::$frontend_modules_loaded ) {
+            self::$frontend_data_loaded = self::add_merge_script( $target, $data );
+        } else {
+            self::$frontend_data_loaded = wp_localize_script( $target, 'directorist', $data );
+        }
+
+        if ( self::$frontend_data_loaded ) {
+            self::$frontend_anchor = $target;
+        }
+    }
+
+    /**
+     * Add the legacy aggregate to the best script that has not printed yet.
+     *
+     * @return void
+     */
+    public static function ensure_legacy_data() {
+        $handle = self::find_available_handle();
+
+        if ( $handle ) {
+            self::ensure_frontend_data( $handle );
+        }
+    }
+
+    /**
+     * Add only the data modules required by a Directorist script handle.
+     *
+     * @param string $handle Script handle.
+     *
+     * @return void
+     */
+    public static function ensure_handle_data( $handle ) {
+        if ( ! self::is_eligible_handle( $handle ) ) {
+            return;
+        }
+
+        if ( Asset_Compatibility::should_use_legacy_localized_data() ) {
+            self::ensure_frontend_data( $handle );
+            return;
+        }
+
+        self::ensure_modules( Localized_Data_Registry::get_modules( $handle ), $handle );
+    }
+
+    /**
+     * Add one or more frontend data modules without rebuilding loaded modules.
+     *
+     * @param string|array $modules Module identifiers.
+     * @param string       $handle  Preferred owning script handle.
+     *
+     * @return void
+     */
+    public static function ensure_modules( $modules, $handle = 'jquery' ) {
+        if ( Asset_Compatibility::should_use_legacy_localized_data() ) {
+            if ( self::is_eligible_handle( $handle ) ) {
+                self::ensure_frontend_data( $handle );
+            } else {
+                self::ensure_legacy_data();
+            }
+            return;
+        }
+
+        $modules = array_values(
+            array_filter(
+                Localized_Data_Registry::expand_modules( $modules ),
+                static function ( $module ) {
+                    return empty( self::$frontend_modules_loaded[ $module ] );
+                }
+            )
+        );
+
+        if ( ! $modules ) {
+            return;
+        }
+
+        $target = self::find_available_handle( $handle );
+
+        if ( ! $target ) {
+            return;
+        }
+
+        $data = [];
+
+        foreach ( $modules as $module ) {
+            $module_data = self::get_module_data( $module, $handle );
+            $data        = array_replace_recursive( $data, $module_data );
+        }
+
+        $loaded = self::$frontend_modules_loaded
+            ? self::add_merge_script( $target, $data )
+            : wp_localize_script( $target, 'directorist', $data );
+
+        if ( ! $loaded ) {
+            return;
+        }
+
+        foreach ( $modules as $module ) {
+            self::$frontend_modules_loaded[ $module ] = true;
+        }
+
+        self::$frontend_anchor = $target;
     }
 
     /**
@@ -71,9 +192,12 @@ class Localized_Data {
      * @return void
      */
     public static function reset() {
-        self::$frontend_data_loaded = false;
-        self::$formgent_data_loaded = false;
-        self::$admin_data_loaded    = false;
+        self::$frontend_data_loaded    = false;
+        self::$frontend_modules_loaded = [];
+        self::$frontend_module_cache   = [];
+        self::$frontend_anchor         = '';
+        self::$formgent_data_loaded    = false;
+        self::$admin_data_loaded       = false;
     }
 
     protected static function ensure_admin_data() {
@@ -138,6 +262,16 @@ class Localized_Data {
 
     private static function directorist_options_data() {
         return self::get_option_data();
+    }
+
+    private static function get_module_data( $module, $handle ) {
+        if ( ! isset( self::$frontend_module_cache[ $module ] ) ) {
+            self::$frontend_module_cache[ $module ] = Localized_Data_Modules::get( $module );
+        }
+
+        $data = apply_filters( 'directorist_localized_data_module', self::$frontend_module_cache[ $module ], $module, $handle );
+
+        return is_array( $data ) ? $data : [];
     }
 
     private static function admin_ajax_localized_data() {
@@ -433,6 +567,20 @@ class Localized_Data {
         return $data;
     }
 
+    /**
+     * Get the minimal data contract consumed by the range-slider bundle.
+     *
+     * @return array
+     */
+    public static function get_range_slider_data() {
+        $radius_search_unit = get_directorist_option( 'radius_search_unit', 'miles' );
+        $distance_label     = 'kilometers' === $radius_search_unit ? __( ' Kilometers', 'directorist' ) : __( ' Miles', 'directorist' );
+
+        return [
+            'miles' => ! empty( $_GET['miles'] ) ? absint( $_GET['miles'] ) : $distance_label,
+        ];
+    }
+
     public static function get_option_data() {
         $options = [];
 
@@ -500,5 +648,57 @@ class Localized_Data {
         ];
 
         return apply_filters( 'directorist_formgent_data', $data );
+    }
+
+    private static function find_available_handle( $preferred = '' ) {
+        if ( self::is_eligible_handle( self::$frontend_anchor ) ) {
+            return self::$frontend_anchor;
+        }
+
+        $preferred = self::canonical_handle( $preferred );
+
+        if ( self::is_eligible_handle( $preferred ) ) {
+            return $preferred;
+        }
+
+        if ( self::is_eligible_handle( 'jquery-core' ) ) {
+            return 'jquery-core';
+        }
+
+        foreach ( (array) wp_scripts()->queue as $handle ) {
+            if ( self::is_eligible_handle( $handle ) ) {
+                return $handle;
+            }
+        }
+
+        return '';
+    }
+
+    private static function is_eligible_handle( $handle ) {
+        $handle = self::canonical_handle( $handle );
+
+        return $handle
+            && wp_script_is( $handle, 'registered' )
+            && ! wp_script_is( $handle, 'done' );
+    }
+
+    private static function canonical_handle( $handle ) {
+        return 'jquery' === $handle ? 'jquery-core' : $handle;
+    }
+
+    private static function add_merge_script( $handle, $data ) {
+        if ( ! self::is_eligible_handle( $handle ) || ! $data ) {
+            return false;
+        }
+
+        $encoded = wp_json_encode( $data );
+
+        if ( false === $encoded ) {
+            return false;
+        }
+
+        $script = '(function(w,d){var p=Object.prototype;function o(v){return p.toString.call(v)==="[object Object]";}function m(t,s){var k;for(k in s){if(!p.hasOwnProperty.call(s,k)){continue;}if(o(s[k])){t[k]=m(o(t[k])?t[k]:{},s[k]);}else{t[k]=s[k];}}return t;}w.directorist=m(o(w.directorist)?w.directorist:{},d);})(window,' . $encoded . ');';
+
+        return wp_add_inline_script( $handle, $script, 'before' );
     }
 }

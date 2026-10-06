@@ -271,6 +271,8 @@ class Asset_Manager {
         self::$pending_scripts            = [];
         self::$main_inline_style_added    = false;
         self::$dashboard_orders_localized = false;
+
+        Asset_Compatibility::reset();
     }
 
     /**
@@ -388,7 +390,7 @@ class Asset_Manager {
             return;
         }
 
-        Localized_Data::ensure_frontend_data( $handle );
+        Localized_Data::ensure_handle_data( $handle );
 
         if ( 'directorist-formgent-integration' === $handle ) {
             Localized_Data::ensure_formgent_data();

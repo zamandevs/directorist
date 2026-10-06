@@ -14,6 +14,8 @@ class Asset_Compatibility {
     const MODE_LEGACY = 'legacy';
     const MODE_STRICT = 'strict';
 
+    protected static $legacy_localized_data_required = false;
+
     /**
      * Get current compatibility mode.
      *
@@ -74,11 +76,60 @@ class Asset_Compatibility {
      */
     public static function handle_render_context( $context ) {
         $context         = is_array( $context ) ? $context : [];
+        $legacy_data     = self::context_requires_legacy_localized_data( $context );
         $fallback_assets = self::get_fallback_assets_for_context( $context );
+
+        if ( $legacy_data ) {
+            self::require_legacy_localized_data( 'render-context', $context );
+        }
 
         if ( $fallback_assets ) {
             Asset_Manager::require_asset( $fallback_assets, 'compatibility-fallback', $context );
         }
+
+        if ( $legacy_data ) {
+            Localized_Data::ensure_legacy_data();
+        }
+    }
+
+    /**
+     * Require the legacy aggregate object for the rest of this request.
+     *
+     * @param string $reason  Compatibility reason.
+     * @param array  $context Render/request context.
+     *
+     * @return void
+     */
+    public static function require_legacy_localized_data( $reason = 'integration', $context = [] ) {
+        self::$legacy_localized_data_required = true;
+
+        do_action( 'directorist_legacy_localized_data_required', $reason, $context );
+    }
+
+    /**
+     * Whether frontend data must retain the complete legacy aggregate.
+     *
+     * @return bool
+     */
+    public static function should_use_legacy_localized_data() {
+        if ( self::is_legacy() ) {
+            $legacy = true;
+        } elseif ( self::is_strict() ) {
+            $legacy = false;
+        } else {
+            $legacy = self::$legacy_localized_data_required || (bool) has_filter( 'directorist_localized_data' );
+        }
+
+        return (bool) apply_filters( 'directorist_should_use_legacy_localized_data', $legacy, self::mode() );
+    }
+
+    /**
+     * Reset request-local compatibility state. Intended for tests.
+     *
+     * @return void
+     */
+    public static function reset() {
+        self::$legacy_localized_data_required = false;
     }
 
     /**
@@ -151,6 +202,30 @@ class Asset_Compatibility {
         }
 
         return [];
+    }
+
+    protected static function context_requires_legacy_localized_data( $context ) {
+        if ( self::is_strict() ) {
+            return false;
+        }
+
+        if ( self::is_legacy() ) {
+            return true;
+        }
+
+        $source = ! empty( $context['source'] ) ? $context['source'] : 'unknown';
+
+        if ( 'extension' === $source ) {
+            $extension = ! empty( $context['extension'] ) ? $context['extension'] : '';
+
+            return ! self::extension_supports_scoped_localized_data( $extension, $context );
+        }
+
+        if ( ! empty( $context['theme_override'] ) || 'theme' === $source ) {
+            return ! self::theme_supports_scoped_localized_data( $context );
+        }
+
+        return false;
     }
 
     /**
@@ -245,6 +320,18 @@ class Asset_Compatibility {
         return in_array( sanitize_key( $extension ), $extensions, true );
     }
 
+    protected static function extension_supports_scoped_localized_data( $extension, $context ) {
+        if ( ! $extension ) {
+            return false;
+        }
+
+        $extensions = self::normalize_asset_list(
+            apply_filters( 'directorist_localized_data_aware_extensions', [], $context )
+        );
+
+        return in_array( sanitize_key( $extension ), $extensions, true );
+    }
+
     /**
      * Determine whether the active theme declares its Directorist overrides
      * compatible with renderer-scoped assets.
@@ -258,6 +345,13 @@ class Asset_Compatibility {
             && current_theme_supports( 'directorist-scoped-assets' );
 
         return (bool) apply_filters( 'directorist_theme_supports_scoped_assets', $supported, $context );
+    }
+
+    protected static function theme_supports_scoped_localized_data( $context ) {
+        $supported = function_exists( 'current_theme_supports' )
+            && current_theme_supports( 'directorist-scoped-localized-data' );
+
+        return (bool) apply_filters( 'directorist_theme_supports_scoped_localized_data', $supported, $context );
     }
 
     protected static function legacy_fallback_assets( $scope, $context ) {

@@ -777,6 +777,21 @@ function directorist_require_asset( $assets, $reason = 'integration-render', $co
 }
 
 /**
+ * Request one or more Directorist frontend localized-data modules.
+ *
+ * Updated integrations should call this before their owning script is printed.
+ * Older cores safely ignore the call when guarded with function_exists().
+ *
+ * @param string|array $modules Module identifier or identifiers.
+ * @param string       $handle  Preferred owning script handle.
+ *
+ * @return void
+ */
+function directorist_require_localized_data( $modules, $handle = 'jquery' ) {
+    \Directorist\Asset_Loader\Localized_Data::ensure_modules( $modules, $handle );
+}
+
+/**
  * Enqueue one or more registered styles from a renderer-level integration.
  * Styles first requested after wp_head are flushed before footer scripts.
  *
