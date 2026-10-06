@@ -6,7 +6,7 @@ namespace Directorist\Cache\Built_In;
  * Integrity-checked response and generation storage.
  */
 final class Cache_Storage {
-    const METADATA_SCHEMA = 1;
+    const METADATA_SCHEMA = 2;
     const MAX_BODY_BYTES  = 10485760;
     const MAX_META_BYTES  = 1048576;
 
@@ -46,6 +46,11 @@ final class Cache_Storage {
         return '' !== $root && $this->writer->prepare_directory( $root );
     }
 
+    /** @return array|false Revision used only to fence in-flight renders, not cache hits. */
+    public function capture_fence() {
+        return $this->generations->snapshot( [ 'directorist:0:mutation' ] );
+    }
+
     /**
      * @param array  $key Canonical request key.
      * @param string $body Complete HTML body.
@@ -53,9 +58,10 @@ final class Cache_Storage {
      * @param array  $headers Safe headers.
      * @param int    $ttl Fresh lifetime.
      * @param int    $stale_ttl Bounded stale lifetime.
+     * @param array|null $render_fence Render-start mutation snapshot, when capturing output.
      * @return array
      */
-    public function store( array $key, $body, array $descriptor, array $headers, $ttl, $stale_ttl ) {
+    public function store( array $key, $body, array $descriptor, array $headers, $ttl, $stale_ttl, array $render_fence = null ) {
         $paths = $this->entry_paths( $key );
 
         if ( empty( $paths ) || ! is_string( $body ) || '' === $body || self::MAX_BODY_BYTES < strlen( $body ) ) {
@@ -67,6 +73,12 @@ final class Cache_Storage {
 
         if ( false === $generations ) {
             return $this->result( false, 'invalid_dependencies', $paths );
+        }
+
+        // Snapshot dependencies first: later mutations must either change this
+        // fence or make the published dependency snapshot fail on the next read.
+        if ( null !== $render_fence && $render_fence !== $this->capture_fence() ) {
+            return $this->result( false, 'render_invalidated', $paths );
         }
 
         $owned_lock = $this->regeneration_hash === $key['hash'] && is_resource( $this->regeneration_lock );
@@ -103,6 +115,14 @@ final class Cache_Storage {
             && $this->writer->write( $paths['body'], $body )
             && $this->writer->write( $paths['metadata'], $encoded );
 
+        $invalidated = $stored && null !== $render_fence && $render_fence !== $this->capture_fence();
+
+        if ( $invalidated ) {
+            $this->remove_regular_file( $paths['metadata'] );
+            $this->remove_regular_file( $paths['body'] );
+            $stored = false;
+        }
+
         if ( ! $owned_lock ) {
             $this->release_lock( $lock );
         }
@@ -115,7 +135,7 @@ final class Cache_Storage {
             $this->remove_regular_file( $paths['refresh'] );
         }
 
-        return $this->result( $stored, $stored ? 'stored' : 'write_failed', $paths );
+        return $this->result( $stored, $stored ? 'stored' : ( $invalidated ? 'render_invalidated' : 'write_failed' ), $paths );
     }
 
     /**
@@ -381,7 +401,8 @@ final class Cache_Storage {
             return $this->result( false, 'invalid_paths' );
         }
 
-        $lock = $this->acquire_lock( $paths['lock'], false );
+        $owned_lock = is_resource( $this->regeneration_lock ) && $this->regeneration_hash === basename( $paths['metadata'], '.json' );
+        $lock = $owned_lock ? $this->regeneration_lock : $this->acquire_lock( $paths['lock'], false );
 
         if ( false === $lock ) {
             return $this->result( false, 'lock_failed', $paths );
@@ -390,7 +411,9 @@ final class Cache_Storage {
         $success = $this->remove_regular_file( $paths['metadata'] )
             && $this->remove_regular_file( $paths['body'] )
             && $this->remove_regular_file( $paths['refresh'] );
-        $this->release_lock( $lock );
+        if ( ! $owned_lock ) {
+            $this->release_lock( $lock );
+        }
 
         return $this->result( $success, $success ? 'purged' : 'purge_failed', $paths );
     }
@@ -485,7 +508,7 @@ final class Cache_Storage {
         }
 
         foreach ( $headers as $name => $value ) {
-            if ( ! in_array( $name, [ 'content-type', 'content-language' ], true ) || ! is_string( $value ) || '' === $value || preg_match( '/[\x00-\x1f\x7f]/', $value ) ) {
+            if ( ! in_array( $name, [ 'content-type', 'content-language', 'vary' ], true ) || ! is_string( $value ) || '' === $value || preg_match( '/[\x00-\x1f\x7f]/', $value ) || ( 'vary' === $name && 'accept-encoding' !== strtolower( $value ) ) ) {
                 return false;
             }
         }
