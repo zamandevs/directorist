@@ -50,6 +50,7 @@ namespace Directorist\Cache {
                 'Directorist\\Cache\\Provider_Capabilities'     => 'class-provider-capabilities.php',
                 'Directorist\\Cache\\Provider_Registry'         => 'class-provider-registry.php',
                 'Directorist\\Cache\\Provider_Selection'        => 'class-provider-selection.php',
+                'Directorist\\Cache\\Plugin_Lifecycle'          => 'class-plugin-lifecycle.php',
                 'Directorist\\Cache\\WP_Fastest_Cache_Provider' => 'providers/class-wp-fastest-cache-provider.php',
                 'Directorist\\Cache\\WP_Rocket_Provider'        => 'providers/class-wp-rocket-provider.php',
                 'Directorist\\Cache\\WP_Rocket_Compatibility'   => 'class-wp-rocket-compatibility.php',
@@ -1341,11 +1342,82 @@ namespace {
 
             update_site_option( 'directorist_page_cache_lifecycle_pending', $pending );
 
+            $changes = ( new \Directorist\Cache\Plugin_Lifecycle() )->enqueue( $subject, $context, current_filter() );
+
+            if ( false === $changes ) {
+                $bounded = ( new \Directorist\Cache\Plugin_Lifecycle() )->merge( [], $subject, $context, current_filter() );
+                if ( ! empty( $bounded['events'] ) ) {
+                    wp_schedule_single_event( time() + 10, 'directorist_page_cache_retry_plugin_events', [ $bounded['events'], $bounded['network_wide'], 1 ] );
+                }
+            } elseif ( ! empty( $changes['network_wide'] ) && is_multisite() ) {
+                $args = [ $changes['events'], get_current_network_id(), 0 ];
+                if ( ! wp_next_scheduled( 'directorist_page_cache_network_plugin_lifecycle', $args ) ) {
+                    wp_schedule_single_event( time() + 10, 'directorist_page_cache_network_plugin_lifecycle', $args );
+                }
+            }
+
             if ( ! wp_next_scheduled( 'directorist_page_cache_reconcile_lifecycle' ) ) {
                 wp_schedule_single_event( time() + 5, 'directorist_page_cache_reconcile_lifecycle' );
             }
 
             return true;
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_retry_plugin_events' ) ) {
+        function directorist_page_cache_retry_plugin_events( $events, $network = false, $attempt = 0 ) {
+            if ( ! is_array( $events ) ) { return false; }
+            $changes = ( new \Directorist\Cache\Plugin_Lifecycle() )->enqueue_events( $events, $network );
+            if ( false === $changes ) {
+                if ( $attempt < \Directorist\Cache\Plugin_Lifecycle::MAX_ATTEMPTS ) {
+                    wp_schedule_single_event( time() + 60, 'directorist_page_cache_retry_plugin_events', [ array_slice( $events, 0, \Directorist\Cache\Plugin_Lifecycle::MAX_EVENTS, true ), (bool) $network, (int) $attempt + 1 ] );
+                }
+                directorist_page_cache_record_performance_event( 'warning', 'plugin-event-queue-failed' );
+                return false;
+            }
+            if ( false !== $changes && ! wp_next_scheduled( 'directorist_page_cache_reconcile_lifecycle' ) ) {
+                wp_schedule_single_event( time(), 'directorist_page_cache_reconcile_lifecycle' );
+            }
+            if ( $network && is_multisite() && ! empty( $changes['events'] ) ) {
+                $args = [ $changes['events'], get_current_network_id(), 0 ];
+                if ( ! wp_next_scheduled( 'directorist_page_cache_network_plugin_lifecycle', $args ) ) {
+                    wp_schedule_single_event( time() + 10, 'directorist_page_cache_network_plugin_lifecycle', $args );
+                }
+            }
+            return true;
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_schedule_core_lifecycle_reconciliation' ) ) {
+        function directorist_page_cache_schedule_core_lifecycle_reconciliation() {
+            return directorist_page_cache_schedule_lifecycle_reconciliation( null, [
+                'type' => 'plugin', 'action' => 'update', 'plugin' => plugin_basename( ATBDP_DIR . 'directorist-base.php' ),
+            ] );
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_network_plugin_lifecycle' ) ) {
+        /** Fan out network changes in bounded batches; each blog loads its own plugin state. */
+        function directorist_page_cache_network_plugin_lifecycle( $events, $network_id, $cursor = 0 ) {
+            if ( ! is_multisite() || ! is_array( $events ) || (int) $network_id !== get_current_network_id() ) { return; }
+            global $wpdb;
+            // WP_Site_Query excludes custom cursors from its cache key; use a bounded keyset scan.
+            $sites = $wpdb->get_col( $wpdb->prepare(
+                "SELECT blog_id FROM {$wpdb->blogs} WHERE site_id = %d AND blog_id > %d AND deleted = 0 AND spam = 0 AND archived = 0 ORDER BY blog_id ASC LIMIT 20",
+                (int) $network_id, max( 0, (int) $cursor )
+            ) );
+            foreach ( $sites as $site_id ) {
+                switch_to_blog( $site_id );
+                try {
+                    directorist_page_cache_retry_plugin_events( $events );
+                    spawn_cron();
+                } finally {
+                    restore_current_blog();
+                }
+            }
+            if ( count( $sites ) === 20 ) {
+                wp_schedule_single_event( time() + 10, 'directorist_page_cache_network_plugin_lifecycle', [ $events, (int) $network_id, (int) end( $sites ) ] );
+            }
         }
     }
 
@@ -1549,6 +1621,11 @@ namespace {
             $state   = get_site_option( Built_In_Lifecycle::STATE_OPTION, [] );
             $reason  = sanitize_key( (string) $reason );
 
+            $plugin_changes = get_option( \Directorist\Cache\Plugin_Lifecycle::PENDING_OPTION, [] );
+            if ( '' === $reason && is_array( $plugin_changes ) && ! empty( $plugin_changes['events'] ) ) {
+                $reason = 'plugin_lifecycle';
+            }
+
             if ( '' === $reason && is_array( $pending ) && ! empty( $pending['reason'] ) ) {
                 $reason = sanitize_key( (string) $pending['reason'] );
             }
@@ -1589,7 +1666,79 @@ namespace {
                 );
             }
 
+            $result['plugin_output'] = directorist_page_cache_refresh_plugin_output( $result );
+
+            if ( ! empty( $result['plugin_output']['runtime_retired'] ) ) {
+                $result['success'] = false;
+                $result['state'] = 'unavailable';
+                $result['code'] = 'plugin_output_invalidation_failed';
+                update_site_option( Built_In_Lifecycle::STATE_OPTION, $result );
+                directorist_page_cache_sync_builtin_maintenance( $result );
+            }
+
             return $result;
+        }
+    }
+
+    if ( ! function_exists( 'directorist_page_cache_refresh_plugin_output' ) ) {
+        /** Invalidate only after persisted state reconciliation, with bounded retries. */
+        function directorist_page_cache_refresh_plugin_output( array $state ) {
+            $lifecycle = new \Directorist\Cache\Plugin_Lifecycle( null, 'directorist_page_cache_record_resource_invalidation' );
+            $pending = get_option( \Directorist\Cache\Plugin_Lifecycle::PENDING_OPTION, [] );
+            if ( ! is_array( $pending ) || empty( $pending['events'] ) ) { return [ 'success' => true, 'code' => 'no_plugin_changes' ]; }
+            if ( 'directorist_updated' === current_filter() ) { return [ 'success' => true, 'code' => 'plugin_output_deferred' ]; }
+            if ( ! directorist_page_cache_is_enabled() || ! apply_filters( 'directorist_page_cache_allow_runtime_mutation', true, 'plugin_lifecycle' ) ) {
+                return [ 'success' => false, 'code' => 'plugin_mutation_disabled' ];
+            }
+            if ( ! empty( $pending['retry_at'] ) && time() < $pending['retry_at'] ) { return [ 'success' => false, 'code' => 'plugin_retry_pending' ]; }
+            if ( isset( $pending['attempts'] ) && $pending['attempts'] >= \Directorist\Cache\Plugin_Lifecycle::MAX_ATTEMPTS ) { return [ 'success' => false, 'code' => 'plugin_retry_exhausted' ]; }
+            $lock = $lifecycle->acquire();
+            if ( false === $lock ) {
+                if ( ! wp_next_scheduled( 'directorist_page_cache_reconcile_lifecycle' ) ) {
+                    wp_schedule_single_event( time() + 30, 'directorist_page_cache_reconcile_lifecycle' );
+                }
+                return [ 'success' => false, 'code' => 'plugin_refresh_running' ];
+            }
+            try {
+                $provider = null;
+                if ( ! empty( $state['success'] ) && in_array( isset( $state['state'] ) ? $state['state'] : '', [ 'built_in', 'external' ], true ) ) {
+                    $selection = directorist_page_cache_provider_registry()->select();
+                    $provider = $selection->get_provider();
+                    if ( ! $provider instanceof Cache_Provider && 'built_in' === $state['state'] && 'no_available_provider' === $selection->get_code() && directorist_page_cache_builtin_runtime_is_healthy() ) {
+                        directorist_page_cache_provider_registry()->register( directorist_page_cache_builtin_provider(), 10 );
+                        $provider = directorist_page_cache_provider_registry()->select( false )->get_provider();
+                    }
+                }
+                $result = $provider instanceof Cache_Provider
+                    ? $lifecycle->refresh( $pending, $provider ) : [ 'success' => false, 'code' => 'provider_unavailable' ];
+                if ( ! empty( $result['success'] ) ) {
+                    if ( ! $lifecycle->replace( $pending, [] ) && ! wp_next_scheduled( 'directorist_page_cache_reconcile_lifecycle' ) ) {
+                        wp_schedule_single_event( time() + 5, 'directorist_page_cache_reconcile_lifecycle' );
+                    }
+                } else {
+                    $next = $pending;
+                    $next['attempts'] = isset( $pending['attempts'] ) ? (int) $pending['attempts'] + 1 : 1;
+                    $next['retry_at'] = time() + 60 * $next['attempts'];
+                    $lifecycle->replace( $pending, $next );
+                    if ( $next['attempts'] < \Directorist\Cache\Plugin_Lifecycle::MAX_ATTEMPTS && ! wp_next_scheduled( 'directorist_page_cache_reconcile_lifecycle' ) ) {
+                        wp_schedule_single_event( $next['retry_at'], 'directorist_page_cache_reconcile_lifecycle' );
+                    }
+                    if ( $provider instanceof Cache_Provider && 'directorist-cache' === $provider->get_id() ) {
+                        $retired = directorist_page_cache_builtin_runtime()->deactivate();
+                        $result['runtime_retired'] = ! empty( $retired['success'] );
+                    }
+                    directorist_page_cache_record_performance_event( 'warning', 'plugin-output-invalidation-failed', [ 'code' => $result['code'] ] );
+                }
+                if ( isset( $result['invalidation'], $result['plan'] ) ) {
+                    directorist_page_cache_record_invalidation_outcome( $result['invalidation'], $result['plan'] );
+                }
+                if ( isset( $result['notification_success'] ) && ! $result['notification_success'] ) {
+                    directorist_page_cache_record_performance_event( 'warning', 'plugin-cache-state-update-failed' );
+                }
+                return $result;
+            } finally {
+                $lifecycle->release( $lock );
+            }
         }
     }
 
@@ -2356,9 +2505,12 @@ namespace {
     add_action( 'deactivated_plugin', 'directorist_page_cache_schedule_lifecycle_reconciliation', 20, 2 );
     add_action( 'deleted_plugin', 'directorist_page_cache_schedule_lifecycle_reconciliation', 20, 2 );
     add_action( 'upgrader_process_complete', 'directorist_page_cache_schedule_lifecycle_reconciliation', 20, 2 );
+    add_action( 'directorist_updated', 'directorist_page_cache_schedule_core_lifecycle_reconciliation', 10 );
     add_action( 'directorist_updated', 'directorist_page_cache_reconcile_lifecycle', 20 );
     add_action( 'admin_init', 'directorist_page_cache_reconcile_lifecycle', 20 );
     add_action( 'directorist_page_cache_reconcile_lifecycle', 'directorist_page_cache_reconcile_lifecycle', 10 );
+    add_action( 'directorist_page_cache_retry_plugin_events', 'directorist_page_cache_retry_plugin_events', 10, 3 );
+    add_action( 'directorist_page_cache_network_plugin_lifecycle', 'directorist_page_cache_network_plugin_lifecycle', 10, 3 );
     add_action( 'directorist_page_cache_daily_cleanup', 'directorist_page_cache_queue_builtin_cleanup', 10 );
     add_action( 'directorist_page_cache_refresh_due_entries', 'directorist_page_cache_refresh_due_entries', 10 );
     add_action( 'wp_ajax_directorist_page_cache_refresh_due', 'directorist_page_cache_receive_refresh_handoff' );
