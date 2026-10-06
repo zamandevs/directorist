@@ -55,6 +55,9 @@ namespace Directorist\Cache\Built_In {
         /** @var bool */
         private $capture_started = false;
 
+        /** @var array|null */
+        private $render_fence;
+
         /** @var bool */
         private $buffer_overflow = false;
 
@@ -158,6 +161,7 @@ namespace Directorist\Cache\Built_In {
 
                 if ( ! empty( $lock['success'] ) ) {
                     $this->regeneration = true;
+                    $this->render_fence = $this->storage->capture_fence();
                     $this->early_result = $this->early_result( false, true, 'refresh_forced' );
 
                     return $this->early_result;
@@ -176,6 +180,7 @@ namespace Directorist\Cache\Built_In {
                     $cached['code'] = 'refresh_queued';
                 } elseif ( 'refresh_sync' === $refresh ) {
                     $this->regeneration = true;
+                    $this->render_fence = $this->storage->capture_fence();
                     $this->early_result = $this->early_result( false, true, 'refresh_sync' );
 
                     return $this->early_result;
@@ -209,6 +214,7 @@ namespace Directorist\Cache\Built_In {
             }
 
             $this->regeneration = true;
+            $this->render_fence = $this->storage->capture_fence();
             $this->early_result = $this->early_result( false, true, $force_refresh ? 'refresh_forced' : $cached['code'] );
 
             return $this->early_result;
@@ -222,6 +228,11 @@ namespace Directorist\Cache\Built_In {
         public function begin_capture() {
             if ( ! $this->regeneration || 'GET' !== $this->method ) {
                 return [ 'eligible' => false, 'reason' => 'request_not_prepared' ];
+            }
+
+            if ( ! is_array( $this->render_fence ) ) {
+                $this->release_request();
+                return [ 'eligible' => false, 'reason' => 'capture_fence_unavailable' ];
             }
 
             try {
@@ -276,6 +287,8 @@ namespace Directorist\Cache\Built_In {
                 $dependencies[] = $url_generation;
             }
 
+            $dependencies[] = $this->entry_generation_key( $descriptor['site_id'] ?? 1, $this->current_key['hash'] );
+
             $descriptor['dependencies']     = array_values( array_unique( $dependencies ) );
             $descriptor['refresh_endpoint'] = function_exists( 'admin_url' ) ? admin_url( 'admin-ajax.php' ) : '';
             $validated                      = $this->validator->validate( $body, $status, $headers, $descriptor );
@@ -297,7 +310,8 @@ namespace Directorist\Cache\Built_In {
                 $descriptor,
                 $validated['headers'],
                 $lifetime['soft_ttl'],
-                $lifetime['stale_ttl']
+                $lifetime['stale_ttl'],
+                $this->render_fence
             );
             $this->release_request();
 
@@ -419,8 +433,12 @@ namespace Directorist\Cache\Built_In {
                 $generations[] = 'directorist:' . $site_id . ':site';
             }
 
+            foreach ( $this->string_list( $plan['entry_hashes'] ?? [] ) as $hash ) {
+                $generations[] = $this->entry_generation_key( $site_id, $hash );
+            }
+
             $generation_keys = array_values( array_unique( array_filter( array_merge( $dependencies, $generations ) ) ) );
-            $generation      = $this->storage->bump_generations( $generation_keys );
+            $generation      = $this->storage->bump_generations( array_merge( [ 'directorist:0:mutation' ], $generation_keys ) );
             $purged          = 0;
 
             foreach ( $url_keys as $key ) {
@@ -514,6 +532,13 @@ namespace Directorist\Cache\Built_In {
             $this->storage->release_regeneration();
             $this->regeneration    = false;
             $this->capture_started = false;
+            $this->render_fence    = null;
+        }
+
+        private function entry_generation_key( $site_id, $hash ) {
+            return is_string( $hash ) && preg_match( '/^[a-f0-9]{64}$/D', $hash )
+                ? 'directorist:' . max( 1, (int) $site_id ) . ':entry:' . $hash
+                : '';
         }
 
         /**

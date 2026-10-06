@@ -18,7 +18,7 @@ final class Plugin_Lifecycle {
     }
 
     /** Preserve only plugin events; unknown payloads never imply a full purge. */
-    public function merge( array $pending, $subject, $context, $hook = '' ) {
+    public function merge( array $pending, $subject, $context, $hook = '', $replay_network = null ) {
         $plugins = is_string( $subject ) ? [ $subject ] : [];
         $network = is_bool( $context ) && $context;
         $actions = [ 'activated_plugin' => 'activate', 'deactivated_plugin' => 'deactivate', 'deleted_plugin' => 'delete' ];
@@ -26,7 +26,7 @@ final class Plugin_Lifecycle {
 
         if ( 'deleted_plugin' === $hook ) {
             if ( ! $context ) { return $pending; }
-            $network = is_multisite();
+            $network = is_bool( $replay_network ) ? $replay_network : is_multisite();
         }
 
         if ( is_array( $context ) ) {
@@ -146,7 +146,7 @@ final class Plugin_Lifecycle {
                 $action = isset( $event['action'] ) ? $event['action'] : '';
                 $hooks = [ 'activate' => 'activated_plugin', 'deactivate' => 'deactivated_plugin', 'delete' => 'deleted_plugin' ];
                 $next = isset( $hooks[ $action ] )
-                    ? $this->merge( $next, $event['plugin'], (bool) $network, $hooks[ $action ] )
+                    ? $this->merge( $next, $event['plugin'], 'delete' === $action ? true : (bool) $network, $hooks[ $action ], (bool) $network )
                     : $this->merge( $next, null, [ 'type' => 'plugin', 'action' => 'install' === $action ? 'install' : 'update', 'plugin' => $event['plugin'], 'network_wide' => (bool) $network ], 'upgrader_process_complete' );
             }
             if ( $this->replace( $pending, $next ) ) { return $next; }
