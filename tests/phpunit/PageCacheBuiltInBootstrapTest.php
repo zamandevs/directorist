@@ -188,6 +188,82 @@ final class Directorist_Page_Cache_Built_In_Bootstrap_Test extends WP_UnitTestCa
         unlink( $foreign_config );
     }
 
+    public function test_health_recovery_removes_only_an_inactive_supported_provider_dropin() {
+        $rocket  = wp_tempnam( 'directorist-inactive-wp-rocket.php' );
+        $foreign = wp_tempnam( 'directorist-inactive-foreign.php' );
+        $target  = wp_tempnam( 'directorist-inactive-symlink-target.php' );
+        $symlink = wp_tempnam( 'directorist-inactive-symlink.php' );
+        file_put_contents( $rocket, "<?php\ndefine( 'WP_ROCKET_ADVANCED_CACHE', true );\n" );
+        file_put_contents( $foreign, "<?php\n// foreign cache\n" );
+        file_put_contents( $target, "<?php\ndefine( 'WP_ROCKET_ADVANCED_CACHE', true );\n" );
+        unlink( $symlink );
+        symlink( $target, $symlink );
+
+        $runtime = [
+            'external_probe'   => static function () {
+                return [ 'code' => 'no_available_provider', 'provider' => '', 'candidates' => [] ];
+            },
+            'provider_active'  => '__return_false',
+            'mutation_allowed' => '__return_true',
+        ];
+
+        $removed = directorist_page_cache_cleanup_inactive_provider_dropin(
+            array_merge( $runtime, [ 'path' => $rocket ] )
+        );
+        $this->assertSame( 'inactive_provider_dropin_removed', $removed['code'] );
+        $this->assertSame( 'wp-rocket', $removed['provider'] );
+        $this->assertFileDoesNotExist( $rocket );
+
+        $unknown = directorist_page_cache_cleanup_inactive_provider_dropin(
+            array_merge( $runtime, [ 'path' => $foreign ] )
+        );
+        $this->assertSame( 'dropin_not_supported', $unknown['code'] );
+        $this->assertFileExists( $foreign );
+
+        $linked = directorist_page_cache_cleanup_inactive_provider_dropin(
+            array_merge( $runtime, [ 'path' => $symlink ] )
+        );
+        $this->assertSame( 'dropin_path_unsafe', $linked['code'] );
+        $this->assertTrue( is_link( $symlink ) );
+        $this->assertFileExists( $target );
+
+        $active = directorist_page_cache_cleanup_inactive_provider_dropin(
+            array_merge(
+                $runtime,
+                [
+                    'path'            => $foreign,
+                    'owner_resolver'  => static function () {
+                        return 'wp-rocket';
+                    },
+                    'provider_active' => '__return_true',
+                ]
+            )
+        );
+        $this->assertSame( 'provider_still_active', $active['code'] );
+        $this->assertFileExists( $foreign );
+
+        $selected = directorist_page_cache_cleanup_inactive_provider_dropin(
+            array_merge(
+                $runtime,
+                [
+                    'path'           => $foreign,
+                    'owner_resolver' => static function () {
+                        return 'wp-rocket';
+                    },
+                    'external_probe' => static function () {
+                        return [ 'code' => 'selected', 'provider' => 'wp-rocket', 'candidates' => [ 'wp-rocket' ] ];
+                    },
+                ]
+            )
+        );
+        $this->assertSame( 'external_provider_available', $selected['code'] );
+        $this->assertFileExists( $foreign );
+
+        unlink( $foreign );
+        unlink( $symlink );
+        unlink( $target );
+    }
+
     public function test_cron_boot_registers_cleanup_healthcheck_schedule_before_rescheduling() {
         $worker     = directorist_page_cache_builtin_cleanup_process();
         $job_worker = directorist_page_cache_performance_job_process();
