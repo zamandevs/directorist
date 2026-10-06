@@ -30,15 +30,12 @@ if ( ! class_exists( 'ATBDP_Settings_Panel' ) ) {
 
             add_action( 'admin_menu', [$this, 'add_menu_pages'] );
             add_action( 'wp_ajax_save_settings_data', [ $this, 'handle_save_settings_data_request' ] );
-            add_action( 'wp_ajax_save_settings_data', [ $this, 'handle_save_settings_data_request' ] );
             add_filter( 'atbdp_listing_type_settings_field_list', [ $this, 'register_setting_fields' ] );
             add_filter( 'elementor/editor-one/menu/theme_builder_url', [ $this, 'fix_elementor_theme_builder_url' ], 20 );
         }
 
         public function update_init_options() {
-            // Set lazy_load_taxonomy_fields option
-            $enable_lazy_loading = directorist_has_no_listing() ? true : false;
-            update_directorist_option( 'lazy_load_taxonomy_fields', $enable_lazy_loading );
+            Directorist_Base::update_settings_init_options();
         }
 
         public static function in_settings_page() {
