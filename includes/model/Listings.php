@@ -13,6 +13,8 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 class Directorist_Listings {
     protected $thumbnails_cached = false;
 
+    protected $post_caches_primed = false;
+
     public $query_args = [];
 
     public $query_results = [];
@@ -541,6 +543,16 @@ class Directorist_Listings {
         $archive_fields = directorist_listing_archive_fields( $listing_type, [ 'author_id' => $author_id, ] );
 
         $this->loop = array_merge( $this->loop, $archive_fields );
+
+        $term_ids = [];
+
+        foreach ( [ $this->loop['cats'], $this->loop['locs'] ] as $terms ) {
+            if ( is_array( $terms ) ) {
+                $term_ids = array_merge( $term_ids, wp_list_pluck( $terms, 'term_id' ) );
+            }
+        }
+
+        directorist_page_cache_add_listing_dependencies( $id, $author_id, [ $listing_type ], $term_ids );
     }
 
     public function get_review_data() {
@@ -1012,18 +1024,20 @@ class Directorist_Listings {
 
                         foreach ( $values as $value ) {
                             $sub_meta_queries[] = [
-                                'key'     => '_' . $key,
-                                'value'   => sanitize_text_field( $value ),
-                                'compare' => 'LIKE'
+                                'key'                     => '_' . $key,
+                                'value'                   => sanitize_text_field( $value ),
+                                'compare'                 => 'LIKE',
+                                'directorist_index_match' => 'membership',
                             ];
                         }
 
                         $meta_query = $sub_meta_queries;
                     } else {
                         $meta_query = [
-                            'key'     => '_' . $key,
-                            'value'   => sanitize_text_field( $values[0] ),
-                            'compare' => 'LIKE'
+                            'key'                     => '_' . $key,
+                            'value'                   => sanitize_text_field( $values[0] ),
+                            'compare'                 => 'LIKE',
+                            'directorist_index_match' => 'membership',
                         ];
                     }
                 } else {
@@ -1049,6 +1063,10 @@ class Directorist_Listings {
                             'value'   => sanitize_text_field( $values ),
                             'compare' => $operator
                         ];
+
+                        if ( 'LIKE' === $operator ) {
+                            $meta_query['directorist_index_match'] = 'fulltext';
+                        }
                     }
                 }
 
@@ -1330,7 +1348,7 @@ class Directorist_Listings {
             return;
         }
 
-        _prime_post_caches( $this->post_ids() );
+        $this->prime_post_caches();
 
         global $post;
         $post = get_post( $id );
@@ -1360,9 +1378,7 @@ class Directorist_Listings {
 
         if ( ! empty( $listings->ids ) ) :
             // Prime caches to reduce future queries.
-            if ( ! empty( $listings->ids ) && is_callable( '_prime_post_caches' ) ) {
-                _prime_post_caches( $listings->ids );
-            }
+            $this->prime_post_caches();
 
             $original_post = $GLOBALS['post'];
             $counter = 0;
@@ -1687,9 +1703,7 @@ class Directorist_Listings {
 
         if ( ! empty( $listings->ids ) ) :
             // Prime caches to reduce future queries.
-            if ( ! empty( $listings->ids ) && is_callable( '_prime_post_caches' ) ) {
-                _prime_post_caches( $listings->ids );
-            }
+            $this->prime_post_caches();
 
             $original_post = ! empty( $GLOBALS['post'] ) ? $GLOBALS['post'] : '';
 
@@ -1781,9 +1795,7 @@ class Directorist_Listings {
 
             if ( ! empty( $listings->ids ) ) :
                 // Prime caches to reduce future queries.
-                if ( ! empty( $listings->ids ) && is_callable( '_prime_post_caches' ) ) {
-                    _prime_post_caches( $listings->ids );
-                }
+                $this->prime_post_caches();
 
                 $original_post = ! empty( $GLOBALS['post'] ) ? $GLOBALS['post'] : '';
 
@@ -1869,6 +1881,15 @@ class Directorist_Listings {
         }
 
         $this->thumbnails_cached = true;
+    }
+
+    public function prime_post_caches() {
+        if ( $this->post_caches_primed || empty( $this->query_results->ids ) || ! is_callable( '_prime_post_caches' ) ) {
+            return;
+        }
+
+        _prime_post_caches( $this->query_results->ids );
+        $this->post_caches_primed = true;
     }
 
     function loop_get_the_thumbnail( $class = '' ) {

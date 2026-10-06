@@ -242,8 +242,16 @@ final class Directorist_Base {
 
             add_action( 'init', [ self::$instance, 'on_install_update_actions' ] );
             Activation::register_hooks();
+            Directorist\database\Listing_Index_Lifecycle::register_hooks();
+            Directorist\database\Listing_Index::register_hooks();
+            Directorist\database\Listing_Index_Maintenance::register_hooks();
+
+            if ( defined( 'WP_CLI' ) && WP_CLI ) {
+                Directorist\database\Listing_Index_CLI::register();
+            }
 
             Directorist\Asset_Loader\Asset_Loader::init();
+            Directorist\Cache\Cache_Manager::instance()->initialize();
 
             // ATBDP_Listing_Type_Manager
             self::$instance->multi_directory_manager = new Directorist\Multi_Directory\Multi_Directory_Manager();
@@ -476,6 +484,7 @@ final class Directorist_Base {
             [
                 ATBDP_INC_DIR . 'payment-processors/payment',
                 ATBDP_INC_DIR . 'payment-processors/bank-transfer',
+                ATBDP_INC_DIR . 'cache/bootstrap',
                 ATBDP_INC_DIR . 'directorist-core-functions',
                 ATBDP_INC_DIR . 'directorist-directory-functions',
                 ATBDP_INC_DIR . 'class-helper',
@@ -522,10 +531,14 @@ final class Directorist_Base {
         }
     }
 
-    public static function prepare_plugin() {
+    public static function prepare_plugin( $network_wide = false ) {
         include ATBDP_INC_DIR . 'classes/class-installation.php';
         ATBDP_Installation::install();
         Activation::run();
+
+        if ( function_exists( 'directorist_page_cache_activate_builtin_runtime' ) ) {
+            directorist_page_cache_activate_builtin_runtime( (bool) $network_wide );
+        }
     }
 
     /**
@@ -999,3 +1012,4 @@ function ATBDP() {
 
 directorist();
 register_activation_hook( __FILE__, ['Directorist_Base', 'prepare_plugin'] );
+register_deactivation_hook( __FILE__, 'directorist_page_cache_deactivate_builtin_runtime' );

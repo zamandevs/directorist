@@ -7,6 +7,10 @@ if ( ! class_exists( 'ATBDP_SEO' ) ) :
      * Class ATBDP_SEO
      */
     class ATBDP_SEO {
+        private $taxonomy_page_ids;
+
+        private $taxonomy_terms = [];
+
         public function __construct() {
             $is_enabled_seo = ! empty( get_directorist_option( 'atbdp_enable_seo' ) );
 
@@ -117,13 +121,26 @@ if ( ! class_exists( 'ATBDP_SEO' ) ) :
         // get_taxonomy_term
         public function get_taxonomy_term( $id = null ) {
             $id = ( $id ) ?  $id : get_the_ID();
+            $cache_key = md5(
+                maybe_serialize(
+                    [
+                        (int) $id,
+                        get_query_var( 'atbdp_category' ),
+                        get_query_var( 'atbdp_location' ),
+                        get_query_var( 'atbdp_tag' ),
+                    ]
+                )
+            );
+
+            if ( array_key_exists( $cache_key, $this->taxonomy_terms ) ) {
+                return $this->taxonomy_terms[ $cache_key ];
+            }
+
             $post = get_post( $id );
             $taxonomy = null;
 
             if ( $post instanceof WP_Post && ( $post->post_type == 'post' || $post->post_type == 'page' ) ) {
-                $CAT_page_ID = directorist_get_page_id( 'category' );
-                $LOC_page_ID = directorist_get_page_id( 'location' );
-                $Tag_page_ID = directorist_get_page_id( 'tag' );
+                [ $CAT_page_ID, $LOC_page_ID, $Tag_page_ID ] = $this->get_taxonomy_page_ids();
                 // Change Location page title
                 if ( $post->ID == $LOC_page_ID ) {
                     if ( $slug = get_query_var( 'atbdp_location' ) ) {
@@ -147,7 +164,9 @@ if ( ! class_exists( 'ATBDP_SEO' ) ) :
                 }
             }
 
-            return $taxonomy;
+            $this->taxonomy_terms[ $cache_key ] = $taxonomy;
+
+            return $this->taxonomy_terms[ $cache_key ];
         }
 
         // wpseo_opengraph_title
@@ -175,11 +194,11 @@ if ( ! class_exists( 'ATBDP_SEO' ) ) :
             if ( ! is_int( $page_id ) ) {
                 return $default_title; }
 
-            $category_page_id = directorist_get_page_id( 'category' );
-            $location_page_id = directorist_get_page_id( 'location' );
-            $tag_page_id      = directorist_get_page_id( 'tag' );
+            if ( ! $this->is_taxonomy_page_request() ) {
+                return $default_title;
+            }
 
-            if ( ! in_array( $page_id, [ $category_page_id, $location_page_id, $tag_page_id ] ) ) {
+            if ( ! in_array( $page_id, $this->get_taxonomy_page_ids(), true ) ) {
                 return $default_title;
             }
 
@@ -190,13 +209,11 @@ if ( ! class_exists( 'ATBDP_SEO' ) ) :
         }
 
         public function get_taxonomy_page_term_data( $page_id ) {
-            $category_page_id = directorist_get_page_id( 'category' );
-            $location_page_id = directorist_get_page_id( 'location' );
-            $tag_page_id      = directorist_get_page_id( 'tag' );
+            if ( ! $this->is_taxonomy_page_request() ) {
+                return null;
+            }
 
-            $term_pages = [ $category_page_id, $location_page_id, $tag_page_id ];
-
-            if ( ! in_array( $page_id, $term_pages ) ) {
+            if ( ! in_array( $page_id, $this->get_taxonomy_page_ids(), true ) ) {
                 return null;
             }
 
@@ -204,6 +221,26 @@ if ( ! class_exists( 'ATBDP_SEO' ) ) :
             $term_data = ( $term_data ) ? json_decode( wp_json_encode( $term_data ), true ) : [];
 
             return $term_data;
+        }
+
+        private function is_taxonomy_page_request() {
+            $has_taxonomy_query = get_query_var( 'atbdp_category' )
+                || get_query_var( 'atbdp_location' )
+                || get_query_var( 'atbdp_tag' );
+
+            return (bool) $has_taxonomy_query;
+        }
+
+        private function get_taxonomy_page_ids() {
+            if ( null === $this->taxonomy_page_ids ) {
+                $this->taxonomy_page_ids = [
+                    directorist_get_page_id( 'category' ),
+                    directorist_get_page_id( 'location' ),
+                    directorist_get_page_id( 'tag' ),
+                ];
+            }
+
+            return $this->taxonomy_page_ids;
         }
 
         public function wpseo_metadesc( $desc ) {
