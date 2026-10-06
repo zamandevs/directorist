@@ -8,6 +8,7 @@ use Directorist\Cache\Cache_Provider;
 
 final class Directorist_Page_Cache_Cache_Enabler_Compatibility_Provider implements Cache_Provider {
     public $invalidations = [];
+    public $purge_success = true;
 
     public function get_id() {
         return 'cache-enabler';
@@ -28,7 +29,7 @@ final class Directorist_Page_Cache_Cache_Enabler_Compatibility_Provider implemen
     public function invalidate( array $request ) {
         $this->invalidations[] = $request;
 
-        return [ 'success' => true, 'code' => 'purged_site' ];
+        return [ 'success' => $this->purge_success, 'code' => 'purged_site' ];
     }
 
     public function warm( array $urls ) {
@@ -101,7 +102,71 @@ class Directorist_Page_Cache_Cache_Enabler_Compatibility_Test extends WP_UnitTes
         $this->assertSame( [], Cache_Enabler_Compatibility::current() );
     }
 
-    private function compatibility( array &$settings, &$writes = 0, $write_success = true ) {
+    public function test_blank_cookie_setting_retains_effective_native_private_cookie_defaults() {
+        $settings = [ 'excluded_cookies' => '' ];
+        $writes   = 0;
+        $compat   = $this->compatibility( $settings, $writes );
+        $compat->activate( new Directorist_Page_Cache_Cache_Enabler_Compatibility_Provider() );
+
+        foreach ( [ 'wordpress_logged_in_test', 'wp-postpass_test', 'comment_author_test', 'pll_language' ] as $cookie ) {
+            $this->assertSame( 1, preg_match( $settings['excluded_cookies'], $cookie ), $cookie );
+        }
+        $this->assertSame( 0, preg_match( $settings['excluded_cookies'], 'ordinary_cookie' ) );
+        $compat->deactivate();
+        $this->assertSame( '', $settings['excluded_cookies'] );
+    }
+
+    public function test_private_paths_preserve_user_exclusions_and_restore_exact_original() {
+        $settings = [ 'excluded_cookies' => '', 'excluded_page_paths' => '/^\/customer-private\//' ];
+        $writes   = 0;
+        $compat   = $this->compatibility( $settings, $writes, true, [ '/submission/', '/account/' ] );
+        $provider = new Directorist_Page_Cache_Cache_Enabler_Compatibility_Provider();
+        $compat->activate( $provider );
+        foreach ( [ '/submission/', '/submission/edit/', '/account/', '/customer-private/one/' ] as $path ) {
+            $this->assertSame( 1, preg_match( $settings['excluded_page_paths'], $path ), $path );
+        }
+        $this->assertSame( 0, preg_match( $settings['excluded_page_paths'], '/all-listings/' ) );
+        $compat->activate( $provider );
+        $this->assertCount( 1, $provider->invalidations );
+        $compat->deactivate();
+        $this->assertSame( '/^\/customer-private\//', $settings['excluded_page_paths'] );
+        $this->assertSame( '', $settings['excluded_cookies'] );
+    }
+
+    public function test_policy_upgrade_purges_once_and_adopts_user_path_edits() {
+        $settings = [ 'excluded_cookies' => '' ];
+        $writes = 0;
+        $provider = new Directorist_Page_Cache_Cache_Enabler_Compatibility_Provider();
+        $compat = $this->compatibility( $settings, $writes, true, [ '/account/' ] );
+        $compat->activate( $provider );
+        $status = Cache_Enabler_Compatibility::current();
+        $status['policy_version'] = 1;
+        $status['applied_hash'] = 'old-policy';
+        update_option( Cache_Enabler_Compatibility::OPTION_NAME, $status );
+        $compat->activate( $provider );
+        $compat->activate( $provider );
+        $this->assertCount( 2, $provider->invalidations );
+        $settings['excluded_page_paths'] = '/^\/customer-new\//';
+        $compat->activate( $provider );
+        $this->assertSame( 1, preg_match( $settings['excluded_page_paths'], '/customer-new/one/' ) );
+        $compat->deactivate();
+        $this->assertSame( '/^\/customer-new\//', $settings['excluded_page_paths'] );
+    }
+
+    public function test_failed_purge_is_retried_without_marking_policy_applied() {
+        $settings = [ 'excluded_cookies' => '' ];
+        $writes = 0;
+        $provider = new Directorist_Page_Cache_Cache_Enabler_Compatibility_Provider();
+        $provider->purge_success = false;
+        $compat = $this->compatibility( $settings, $writes );
+        $this->assertSame( 'configuration_purge_failed', $compat->activate( $provider )['code'] );
+        $this->assertSame( '', Cache_Enabler_Compatibility::current()['applied_hash'] );
+        $provider->purge_success = true;
+        $this->assertSame( 'configuration_rebuilt', $compat->activate( $provider )['code'] );
+        $this->assertCount( 2, $provider->invalidations );
+    }
+
+    private function compatibility( array &$settings, &$writes = 0, $write_success = true, array $paths = [] ) {
         return new Cache_Enabler_Compatibility(
             [
                 'read_settings'     => static function () use ( &$settings ) {
@@ -119,6 +184,9 @@ class Directorist_Page_Cache_Cache_Enabler_Compatibility_Test extends WP_UnitTes
                     return true;
                 },
                 'cookie_policy'     => [ $this, 'cookie_policy' ],
+                'private_paths'     => static function () use ( $paths ) {
+                    return $paths;
+                },
                 'warm_after_repair' => static function () {
                     return [ 'success' => true, 'code' => 'unsupported' ];
                 },

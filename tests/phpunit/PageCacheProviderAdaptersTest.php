@@ -182,6 +182,20 @@ class Directorist_Page_Cache_Provider_Adapters_Test extends WP_UnitTestCase {
         );
     }
 
+    public function test_wp_rocket_installed_but_inactive_engine_is_unavailable_even_with_purge_apis() {
+        $calls    = 0;
+        $provider = new WP_Rocket_Provider(
+            [
+                'purge_site' => static function () use ( &$calls ) { ++$calls; },
+                'enabled'    => false,
+                'version'    => 'test',
+            ]
+        );
+        $this->assertFalse( $provider->is_available() );
+        $this->assertSame( 'provider_unavailable', $provider->invalidate( $this->plan( [ 'https://example.org/a/' ] ) )['code'] );
+        $this->assertSame( 0, $calls );
+    }
+
     public function test_litespeed_uses_documented_hooks_through_guarded_operations() {
         $calls    = [];
         $provider = new LiteSpeed_Cache_Provider(
