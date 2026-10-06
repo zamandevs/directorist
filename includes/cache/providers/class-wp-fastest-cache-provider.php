@@ -20,12 +20,14 @@ final class WP_Fastest_Cache_Provider extends Abstract_Cache_Provider {
                 } : null,
                 'disabled'   => $disabled,
                 'enabled'    => $enabled,
+                'warm_urls'  => function_exists( 'directorist_page_cache_queue_warm_urls' ) ? 'directorist_page_cache_queue_warm_urls' : null,
                 'version'    => Plugin_Version::resolve( [ WP_PLUGIN_DIR . '/wp-fastest-cache/wpFastestCache.php' ], 'unknown' ),
             ];
         }
 
         $operations = [
             'purge_site' => isset( $runtime['purge_site'] ) ? $runtime['purge_site'] : null,
+            'warm_urls'  => isset( $runtime['warm_urls'] ) ? $runtime['warm_urls'] : null,
         ];
 
         $available = empty( $runtime['disabled'] ) && ( ! isset( $runtime['enabled'] ) || $runtime['enabled'] );

@@ -242,6 +242,12 @@ abstract class Abstract_Cache_Provider implements Cache_Provider {
             return $this->result( false, 'provider_operation_failed', [ 'operation' => $operation ] );
         }
 
+        if ( 'warm_urls' === $operation && is_array( $operation_result ) ) {
+            if ( empty( $operation_result['success'] ) ) {
+                return $this->result( false, isset( $operation_result['code'] ) ? sanitize_key( (string) $operation_result['code'] ) : 'provider_operation_failed', [ 'operation' => $operation ] );
+            }
+        }
+
         return $this->result( true, $success_code, [ 'operation' => $operation ] );
     }
 
