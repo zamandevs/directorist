@@ -63,6 +63,7 @@ class Directorist_Listing_Index_Storage_Test extends WP_UnitTestCase {
         $this->assertContains( 'PRIMARY', $indexes );
         $this->assertContains( 'directory_listing', $indexes );
         $this->assertContains( 'status_price', $indexes );
+        $this->assertContains( 'author_status_rating', $indexes );
         $this->assertContains( 'directory_price', $indexes );
         $this->assertContains( 'directory_price_signed', $indexes );
         $this->assertContains( 'directory_rating', $indexes );

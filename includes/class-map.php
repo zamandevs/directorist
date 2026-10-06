@@ -30,6 +30,7 @@ return [
     'Directorist\\Repositories\\RefundRepository'          => ATBDP_INC_DIR . 'repositories/refund-repository.php',
     'Directorist\\Repositories\\SubscriptionRepository'    => ATBDP_INC_DIR . 'repositories/subscription-repository.php',
     'Directorist\\database\\DB'                            => ATBDP_INC_DIR . 'database/db.php',
+    'Directorist\\database\\Listing_Author_Statistics'    => ATBDP_INC_DIR . 'database/class-listing-author-statistics.php',
     'Directorist\\database\\Listing_Index'                 => ATBDP_INC_DIR . 'database/class-listing-index.php',
     'Directorist\\database\\Listing_Index_CLI'             => ATBDP_INC_DIR . 'database/class-listing-index-cli.php',
     'Directorist\\database\\Listing_Index_Directory_State' => ATBDP_INC_DIR . 'database/class-listing-index-directory-state.php',

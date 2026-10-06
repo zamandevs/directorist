@@ -14,6 +14,21 @@ function directorist_is_multi_directory_enabled() {
     return (bool) get_directorist_option( 'enable_multi_directory', false );
 }
 
+/**
+ * Return published listing statistics for one author.
+ *
+ * The derived listing index is used when it is ready. Canonical WordPress
+ * posts and metadata remain the fail-open source in every other state.
+ *
+ * @since 8.9.4
+ *
+ * @param int $author_id Author user ID.
+ * @return array{listing_count:int,rated_listing_count:int,average_rating:float,source:string}
+ */
+function directorist_get_author_listing_statistics( $author_id ) {
+    return \Directorist\database\Listing_Author_Statistics::get( $author_id );
+}
+
 function directorist_is_guest_submission_enabled() {
     return (bool) get_directorist_option( 'guest_listings', false );
 }
