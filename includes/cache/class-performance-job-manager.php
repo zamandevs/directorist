@@ -667,18 +667,26 @@ final class Performance_Job_Manager {
     }
 
     private function acquire_job_lock() {
+        global $wpdb;
         $token    = wp_generate_uuid4();
         $deadline = microtime( true ) + self::LOCK_WAIT_SECONDS;
 
         do {
-            $existing = get_option( self::LOCK_OPTION, [] );
+            // add_option() can overwrite a concurrent owner on a duplicate key.
+            $inserted = $wpdb->query( $wpdb->prepare(
+                "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, %s)",
+                self::LOCK_OPTION, maybe_serialize( [ 'token' => $token, 'acquired_at' => time() ] ), 'no'
+            ) );
 
-            if ( is_array( $existing ) && ! empty( $existing['acquired_at'] ) && (int) $existing['acquired_at'] < time() - self::LOCK_TTL ) {
-                delete_option( self::LOCK_OPTION );
+            if ( 1 === $inserted ) {
+                $this->clear_job_lock_cache();
+                return $token;
             }
 
-            if ( add_option( self::LOCK_OPTION, [ 'token' => $token, 'acquired_at' => time() ], '', false ) ) {
-                return $token;
+            $existing = $this->fresh_job_lock();
+
+            if ( is_array( $existing ) && ! empty( $existing['acquired_at'] ) && (int) $existing['acquired_at'] < time() - self::LOCK_TTL ) {
+                $this->delete_matching_job_lock( $existing );
             }
 
             usleep( 20000 );
@@ -688,10 +696,37 @@ final class Performance_Job_Manager {
     }
 
     private function release_job_lock( $token ) {
-        $lock = get_option( self::LOCK_OPTION, [] );
+        $lock = $this->fresh_job_lock();
 
         if ( is_array( $lock ) && ! empty( $lock['token'] ) && is_string( $token ) && hash_equals( (string) $lock['token'], $token ) ) {
-            delete_option( self::LOCK_OPTION );
+            $this->delete_matching_job_lock( $lock );
+        }
+    }
+
+    private function fresh_job_lock() {
+        global $wpdb;
+        // Long-running workers must not use a request-cached mutex owner.
+        return maybe_unserialize( $wpdb->get_var( $wpdb->prepare(
+            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s",
+            self::LOCK_OPTION
+        ) ) );
+    }
+
+    private function delete_matching_job_lock( array $lock ) {
+        global $wpdb;
+        $wpdb->query( $wpdb->prepare(
+            "DELETE FROM {$wpdb->options} WHERE option_name = %s AND BINARY option_value = %s",
+            self::LOCK_OPTION, maybe_serialize( $lock )
+        ) );
+        $this->clear_job_lock_cache();
+    }
+
+    private function clear_job_lock_cache() {
+        wp_cache_delete( self::LOCK_OPTION, 'options' );
+        $notoptions = wp_cache_get( 'notoptions', 'options' );
+        if ( is_array( $notoptions ) && isset( $notoptions[ self::LOCK_OPTION ] ) ) {
+            unset( $notoptions[ self::LOCK_OPTION ] );
+            wp_cache_set( 'notoptions', $notoptions, 'options' );
         }
     }
 
