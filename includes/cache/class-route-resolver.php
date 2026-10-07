@@ -6,6 +6,11 @@ namespace Directorist\Cache;
  * Positively identifies public frontend routes owned by Directorist.
  */
 final class Route_Resolver {
+    const REQUEST_PUBLIC    = 'public';
+    const REQUEST_PRIVATE   = 'private';
+    const REQUEST_REJECTED  = 'rejected';
+    const REQUEST_UNRELATED = 'unrelated';
+
     /** @var Query_Normalizer */
     private $query_normalizer;
 
@@ -93,19 +98,80 @@ final class Route_Resolver {
     }
 
     /**
+     * Resolve a published page through the same route guards used at delivery time.
+     *
+     * @param \WP_Post $page Page to inspect.
+     * @param string   $language Optional language code.
+     * @return Route_Identity|null
+     */
+    public function resolve_page( \WP_Post $page, $language = '' ) {
+        return $this->resolve(
+            [
+                'site_id'          => get_current_blog_id(),
+                'home_url'         => home_url( '/' ),
+                'request_uri'      => (string) wp_parse_url( get_permalink( $page ), PHP_URL_PATH ),
+                'page_id'          => $page->ID,
+                'post_content'     => $page->post_content,
+                'configured_pages' => $this->configured_pages(),
+                'post_author'      => $page->post_author,
+                'language'         => $language,
+            ]
+        );
+    }
+
+    /**
+     * Return whether the current or supplied request is a private Directorist route.
+     *
+     * Unknown non-Directorist pages remain distinguishable from private pages so
+     * an external full-page cache is not disabled for the rest of WordPress.
+     *
+     * @param array|null $state Resolved WordPress state, or null for globals.
+     * @return bool
+     */
+    public function is_private_request( array $state = null ) {
+        $state   = null === $state ? $this->current_state() : $this->normalize_state( $state );
+        $surface = $this->page_builder_surface( $state );
+
+        return $this->is_private_configured_page( $state ) || $this->has_private_content( $state['post_content'] ) || $surface['private'];
+    }
+
+    /**
      * @param array|null $state Resolved WordPress state, or null for globals.
      * @return Route_Identity|null
      */
     public function resolve( array $state = null ) {
-        $state = null === $state ? $this->current_state() : $this->normalize_state( $state );
+        $result = $this->resolve_request( $state );
 
-        if ( $this->is_private_configured_page( $state ) || $this->has_private_content( $state['post_content'] ) ) {
-            return null;
+        return $result['identity'];
+    }
+
+    /**
+     * Distinguish an owned route rejected by cache-key policy from an unrelated route.
+     *
+     * @param array|null $state Resolved WordPress state, or null for globals.
+     * @return string
+     */
+    public function classify_request( array $state = null ) {
+        $result = $this->resolve_request( $state );
+
+        return $result['classification'];
+    }
+
+    /**
+     * @param array|null $state Resolved WordPress state, or null for globals.
+     * @return array{classification:string,identity:Route_Identity|null}
+     */
+    private function resolve_request( array $state = null ) {
+        $state   = null === $state ? $this->current_state() : $this->normalize_state( $state );
+        $surface = $this->page_builder_surface( $state );
+
+        if ( $this->is_private_configured_page( $state ) || $this->has_private_content( $state['post_content'] ) || $surface['private'] ) {
+            return $this->request_result( self::REQUEST_PRIVATE );
         }
 
         $identity_data = $this->resolve_core_identity( $state );
 
-        if ( empty( $identity_data ) && $this->has_public_content( $state['post_content'] ) ) {
+        if ( empty( $identity_data ) && ( $this->has_public_content( $state['post_content'] ) || $surface['public'] ) ) {
             $identity_data = [
                 'route_type' => 'embedded',
                 'object_id'  => $state['page_id'],
@@ -125,14 +191,15 @@ final class Route_Resolver {
         $identity_data = apply_filters( 'directorist_page_cache_route_identity', $identity_data, $state );
 
         if ( ! is_array( $identity_data ) || empty( $identity_data['route_type'] ) ) {
-            return null;
+            return $this->request_result( self::REQUEST_UNRELATED );
         }
 
-        $route_type = sanitize_key( $identity_data['route_type'] );
-        $query      = $this->query_normalizer->normalize( $route_type, $state['query_args'], $state['raw_query'] );
+        $route_type    = sanitize_key( $identity_data['route_type'] );
+        $directory_ids = $this->resolve_query_directory_ids( $route_type, $state, $identity_data );
+        $query         = $this->query_normalizer->normalize( $route_type, $state['query_args'], $state['raw_query'], $directory_ids );
 
         if ( ! $query->is_valid() ) {
-            return null;
+            return $this->request_result( self::REQUEST_REJECTED );
         }
 
         $variation   = $query->get_args();
@@ -147,7 +214,7 @@ final class Route_Resolver {
             }
         }
 
-        return new Route_Identity(
+        $identity = new Route_Identity(
             [
                 'site_id'     => $state['site_id'],
                 'home_url'    => $state['home_url'],
@@ -160,6 +227,20 @@ final class Route_Resolver {
                 'language'    => $state['language'],
             ]
         );
+
+        return $this->request_result( self::REQUEST_PUBLIC, $identity );
+    }
+
+    /**
+     * @param string              $classification Stable request classification.
+     * @param Route_Identity|null $identity Resolved public identity.
+     * @return array{classification:string,identity:Route_Identity|null}
+     */
+    private function request_result( $classification, Route_Identity $identity = null ) {
+        return [
+            'classification' => (string) $classification,
+            'identity'       => $identity,
+        ];
     }
 
     /**
@@ -239,6 +320,32 @@ final class Route_Resolver {
     }
 
     /**
+     * Resolve Directory Types that own the active search configuration.
+     *
+     * @param string $route_type Route type.
+     * @param array $state Request state.
+     * @param array $identity_data Filtered route identity data.
+     * @return int[]
+     */
+    private function resolve_query_directory_ids( $route_type, array $state, array $identity_data ) {
+        $directory_ids = $state['directory_ids'];
+
+        if ( ! empty( $state['query_args'] ) && in_array( $route_type, [ 'category', 'location', 'tag' ], true ) && $state['term_id'] ) {
+            $term_directory_ids = get_term_meta( $state['term_id'], '_directory_type', true );
+            $directory_ids      = array_merge( $directory_ids, is_array( $term_directory_ids ) ? $term_directory_ids : [ $term_directory_ids ] );
+        }
+
+        if ( ! empty( $identity_data['entities']['directory'] ) ) {
+            $directory_ids = array_merge( $directory_ids, (array) $identity_data['entities']['directory'] );
+        }
+
+        $directory_ids = array_values( array_unique( array_filter( array_map( 'absint', $directory_ids ) ) ) );
+        sort( $directory_ids, SORT_NUMERIC );
+
+        return $directory_ids;
+    }
+
+    /**
      * @param array $state Request state.
      * @param array $variation Normalized variation.
      * @return int
@@ -283,6 +390,72 @@ final class Route_Resolver {
      */
     private function has_private_content( $content ) {
         return $this->content_has_any( $content, $this->private_shortcodes, $this->private_blocks );
+    }
+
+    /**
+     * Resolve core page-builder widgets without rendering the page.
+     *
+     * @param array $state Normalized request state.
+     * @return array{public:bool,private:bool,widgets:string[]}
+     */
+    private function page_builder_surface( array $state ) {
+        $surface = [ 'public' => false, 'private' => false, 'widgets' => [] ];
+        $page_id = isset( $state['page_id'] ) ? absint( $state['page_id'] ) : 0;
+
+        if ( 0 < $page_id ) {
+            $data = get_post_meta( $page_id, '_elementor_data', true );
+
+            if ( is_string( $data ) && false !== strpos( $data, 'directorist_' ) ) {
+                $tree = json_decode( $data, true );
+
+                if ( is_array( $tree ) ) {
+                    $surface['widgets'] = $this->elementor_widget_types( $tree );
+                    $surface['public']  = (bool) array_intersect( $surface['widgets'], $this->public_shortcodes );
+                    $surface['private'] = (bool) array_intersect( $surface['widgets'], $this->private_shortcodes );
+                }
+            }
+        }
+
+        /**
+         * Filters page-builder ownership before a page is accepted for caching.
+         *
+         * @param array $surface Public/private surface declaration.
+         * @param array $state Normalized route state.
+         */
+        $surface = apply_filters( 'directorist_page_cache_page_surface', $surface, $state );
+        $surface = is_array( $surface ) ? $surface : [];
+
+        return [
+            'public'  => ! empty( $surface['public'] ),
+            'private' => ! empty( $surface['private'] ),
+            'widgets' => isset( $surface['widgets'] ) && is_array( $surface['widgets'] ) ? $surface['widgets'] : [],
+        ];
+    }
+
+    /**
+     * @param array $nodes Elementor document nodes.
+     * @return string[]
+     */
+    private function elementor_widget_types( array $nodes ) {
+        $types = [];
+
+        foreach ( $nodes as $key => $node ) {
+            if ( 'widgetType' === $key && is_scalar( $node ) ) {
+                $type = sanitize_key( (string) $node );
+
+                if ( '' !== $type ) {
+                    $types[] = $type;
+                }
+
+                continue;
+            }
+
+            if ( is_array( $node ) ) {
+                $types = array_merge( $types, $this->elementor_widget_types( $node ) );
+            }
+        }
+
+        return array_values( array_unique( $types ) );
     }
 
     /**

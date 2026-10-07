@@ -8,27 +8,58 @@ global $wpdb;
 
 include_once( "directorist-base.php" );
 
+// The early cache must never survive removal of the core engine files.
+if ( function_exists( 'directorist_page_cache_deactivate_builtin_runtime' ) ) {
+    directorist_page_cache_deactivate_builtin_runtime();
+}
+
 // Clear schedules
 wp_clear_scheduled_hook( 'directorist_hourly_scheduled_events' );
 
 function directorist_uninstall() {
     global $wpdb;
 
-    $listing_index_process = 'wp_' . get_current_blog_id() . '_directorist_listing_index';
+    $process_prefix        = 'wp_' . get_current_blog_id() . '_';
+    $listing_index_process = $process_prefix . 'directorist_listing_index';
+    $warm_process          = $process_prefix . 'directorist_page_cache_warm';
+    $background_processes  = [
+        $listing_index_process,
+        $warm_process,
+        $process_prefix . 'directorist_page_cache_cleanup',
+        $process_prefix . 'directorist_performance_cache_job',
+        $process_prefix . 'directorist_performance_resource_catalog',
+    ];
 
     wp_clear_scheduled_hook( 'directorist_process_listing_index' );
-    wp_clear_scheduled_hook( $listing_index_process . '_cron' );
-    delete_site_transient( $listing_index_process . '_process_lock' );
+    wp_clear_scheduled_hook( 'directorist_page_cache_retry_warm_url' );
+    wp_clear_scheduled_hook( 'directorist_page_cache_retry_warm_batch' );
+    wp_clear_scheduled_hook( 'directorist_performance_cache_job_monitor' );
+    wp_clear_scheduled_hook( 'directorist_page_cache_reconcile_resources' );
+    wp_clear_scheduled_hook( 'directorist_page_cache_hourly_resource_reconciliation' );
+    wp_clear_scheduled_hook( 'directorist_page_cache_daily_resource_reconciliation' );
 
     $queue_table  = is_multisite() ? $wpdb->sitemeta : $wpdb->options;
     $queue_column = is_multisite() ? 'meta_key' : 'option_name';
 
-    $wpdb->query(
-        $wpdb->prepare(
-            'DELETE FROM ' . $queue_table . ' WHERE ' . $queue_column . ' LIKE %s',
-            $wpdb->esc_like( $listing_index_process . '_batch_' ) . '%'
-        )
-    );
+    foreach ( $background_processes as $process ) {
+        wp_clear_scheduled_hook( $process . '_cron' );
+        delete_site_transient( $process . '_process_lock' );
+
+        $wpdb->query(
+            $wpdb->prepare(
+                'DELETE FROM ' . $queue_table . ' WHERE ' . $queue_column . ' LIKE %s',
+                $wpdb->esc_like( $process . '_batch_' ) . '%'
+            )
+        );
+    }
+
+    delete_transient( $warm_process . '_dedupe' );
+    delete_transient( $warm_process . '_deferred_lock' );
+    delete_option( $warm_process . '_deferred' );
+    delete_option( $warm_process . '_deferred_lock' );
+    delete_site_option( $warm_process . '_health' );
+    delete_site_option( $warm_process . '_generation' );
+    \Directorist\Cache\Performance_Job_Ledger::cleanup_all();
 
     // Delete selected pages
     wp_delete_post( get_directorist_option( 'add_listing_page' ), true );
@@ -78,6 +109,7 @@ function directorist_uninstall() {
     $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}directorist_listing_field_text_index" );
     $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}directorist_listing_index" );
     $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}directorist_listing_index_state" );
+    $wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}directorist_performance_resources" );
 
     // Delete usermeta
     $wpdb->query( "DELETE FROM $wpdb->usermeta WHERE meta_key LIKE '%atbdp%';" );
@@ -124,6 +156,12 @@ function directorist_uninstall() {
         'directorist_listing_index_trusted_deployment',
         'directorist_listing_index_process_lock',
         'directorist_listing_index_retry_after',
+        'directorist_page_cache_performance',
+        'directorist_page_cache_events',
+        'directorist_performance_cache_job',
+        'directorist_performance_resource_schema_version',
+        'directorist_performance_resource_catalog_status',
+        'directorist_page_cache_wpsc_compatibility_v1',
     ];
 
     foreach ( $atbdp_settings as $settings ) {
@@ -131,6 +169,10 @@ function directorist_uninstall() {
     }
 
     delete_site_option( 'directorist_listing_index_deployment_token' );
+    delete_site_option( 'directorist_page_cache_lifecycle_state' );
+    delete_site_option( 'directorist_page_cache_lifecycle_pending' );
+    delete_site_option( 'directorist_page_cache_dropin_owner_v1' );
+    delete_site_option( 'directorist_page_cache_cleanup_pending' );
 }
 
 if ( is_multisite() ) {

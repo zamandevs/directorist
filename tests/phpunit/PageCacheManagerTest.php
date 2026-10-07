@@ -8,6 +8,10 @@ use Directorist\Cache\Cache_Provider;
 use Directorist\Cache\Null_Cache_Provider;
 
 class Directorist_Page_Cache_Manager_Test extends WP_UnitTestCase {
+    /**
+     * @runInSeparateProcess
+     * @preserveGlobalState disabled
+     */
     public function test_bootstrap_does_not_eagerly_load_request_policy_value_objects() {
         $this->assertFalse( class_exists( 'Directorist\\Cache\\Request_Context', false ) );
         $this->assertFalse( class_exists( 'Directorist\\Cache\\Request_Policy', false ) );

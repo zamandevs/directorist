@@ -20,7 +20,7 @@ final class WP_Fastest_Cache_Provider extends Abstract_Cache_Provider {
                 } : null,
                 'disabled'   => $disabled,
                 'enabled'    => $enabled,
-                'version'    => 'unknown',
+                'version'    => Plugin_Version::resolve( [ WP_PLUGIN_DIR . '/wp-fastest-cache/wpFastestCache.php' ], 'unknown' ),
             ];
         }
 

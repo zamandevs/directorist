@@ -15,7 +15,9 @@ final class Eligibility_Result {
     const AUTHORIZATION_HEADER = 'authorization_header';
     const BYPASS_HEADER        = 'bypass_header';
     const REJECTED_COOKIE      = 'rejected_cookie';
+    const INVALID_COOKIE_VARIATION = 'invalid_cookie_variation';
     const UNSUPPORTED_QUERY    = 'unsupported_query';
+    const FILTERED_RESULTS_DISABLED = 'filtered_results_disabled';
     const INTEGRATION_VETO     = 'integration_veto';
 
     /**

@@ -19,6 +19,7 @@ final class WP_Rocket_Provider extends Abstract_Cache_Provider {
                     rocket_clean_domain();
                 } : null,
                 'version'     => defined( 'WP_ROCKET_VERSION' ) ? WP_ROCKET_VERSION : '',
+                'enabled'     => function_exists( 'rocket_valid_key' ) && rocket_valid_key() && defined( 'WP_CACHE' ) && WP_CACHE,
             ];
         }
 
@@ -27,6 +28,7 @@ final class WP_Rocket_Provider extends Abstract_Cache_Provider {
             'purge_site'  => isset( $runtime['purge_site'] ) ? $runtime['purge_site'] : null,
         ];
 
-        $this->configure( 'wp-rocket', isset( $runtime['version'] ) ? $runtime['version'] : '', $operations, empty( $runtime['disabled'] ) );
+        $enabled = ! array_key_exists( 'enabled', $runtime ) || ! empty( $runtime['enabled'] );
+        $this->configure( 'wp-rocket', isset( $runtime['version'] ) ? $runtime['version'] : '', $operations, $enabled && empty( $runtime['disabled'] ) );
     }
 }

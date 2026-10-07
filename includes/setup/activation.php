@@ -82,6 +82,10 @@ class Activation {
 
         Listing_Index_Schema::create();
         Listing_Index_Maintenance::schedule_if_needed();
+
+        if ( class_exists( '\\Directorist\\Cache\\Performance_Resource_Store' ) ) {
+            ( new \Directorist\Cache\Performance_Resource_Store() )->create();
+        }
     }
 
     private static function sync_order_status_enum() {

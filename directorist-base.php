@@ -495,10 +495,14 @@ final class Directorist_Base {
         }
     }
 
-    public static function prepare_plugin() {
+    public static function prepare_plugin( $network_wide = false ) {
         include ATBDP_INC_DIR . 'classes/class-installation.php';
         ATBDP_Installation::install();
         Activation::run();
+
+        if ( function_exists( 'directorist_page_cache_activate_builtin_runtime' ) ) {
+            directorist_page_cache_activate_builtin_runtime( (bool) $network_wide );
+        }
     }
 
     /**
@@ -890,3 +894,4 @@ function ATBDP() {
 
 directorist();
 register_activation_hook( __FILE__, ['Directorist_Base', 'prepare_plugin'] );
+register_deactivation_hook( __FILE__, 'directorist_page_cache_deactivate_builtin_runtime' );

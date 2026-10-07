@@ -307,6 +307,25 @@ class Directorist_Page_Cache_Invalidation_Subscriber_Test extends WP_UnitTestCas
         $this->assertTrue( $this->changes->is_empty() );
     }
 
+    public function test_derived_elementor_asset_meta_does_not_invalidate_public_content() {
+        $listing = self::factory()->post->create(
+            [ 'post_type' => ATBDP_POST_TYPE, 'post_status' => 'publish' ]
+        );
+        $page_id = self::factory()->post->create(
+            [
+                'post_type'    => 'page',
+                'post_status'  => 'publish',
+                'post_content' => '[directorist_all_listing]',
+            ]
+        );
+
+        $this->changes->reset();
+        update_post_meta( $listing, '_elementor_page_assets', [ 'style' => 'generated.css' ] );
+        update_post_meta( $page_id, '_elementor_page_assets', [ 'style' => 'generated.css' ] );
+
+        $this->assertTrue( $this->changes->is_empty() );
+    }
+
     public function test_volatile_page_view_meta_does_not_invalidate_public_directorist_page() {
         $page_id = self::factory()->post->create(
             [

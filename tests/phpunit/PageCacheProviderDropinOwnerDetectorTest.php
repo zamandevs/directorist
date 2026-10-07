@@ -12,6 +12,7 @@ class Directorist_Page_Cache_Dropin_Owner_Detector_Test extends WP_UnitTestCase 
         $this->assertSame( 'wp-super-cache', $detector->detect_content( '<?php // WP SUPER CACHE; WPCACHEHOME' ) );
         $this->assertSame( 'cache-enabler', $detector->detect_content( '<?php $cache_enabler_constants_file = true; CACHE_ENABLER_DIR;' ) );
         $this->assertSame( 'wp-rocket', $detector->detect_content( '<?php define( "WP_ROCKET_PATH", "/plugin/" );' ) );
+        $this->assertSame( 'wp-rocket', $detector->detect_content( '<?php define( "WP_ROCKET_ADVANCED_CACHE", true ); use WP_Rocket\\Buffer\\Cache;' ) );
         $this->assertSame( 'directorist-cache', $detector->detect_content( '<?php // DIRECTORIST PAGE CACHE DROPIN' ) );
     }
 
@@ -46,17 +47,24 @@ class Directorist_Page_Cache_Dropin_Owner_Detector_Test extends WP_UnitTestCase 
         remove_filter( 'directorist_page_cache_dropin_owner', $callback, 10 );
     }
 
-    public function test_persistent_classification_changes_only_after_lifecycle_invalidation() {
-        $path = $this->make_dropin( '<?php // WP SUPER CACHE' );
+    public function test_persistent_classification_changes_when_the_same_path_is_replaced() {
+        $wp_super_cache = '<?php // WP SUPER CACHE';
+        $cache_enabler  = '<?php // CACHE_ENABLER_DIR';
+        $length         = max( strlen( $wp_super_cache ), strlen( $cache_enabler ) );
+        $path           = $this->make_dropin( str_pad( $wp_super_cache, $length ) );
+        $modified       = time() - 60;
+
+        touch( $path, $modified );
 
         Dropin_Owner_Detector::invalidate_persistent_cache();
         $this->assertSame( 'wp-super-cache', ( new Dropin_Owner_Detector( $path ) )->detect() );
 
-        file_put_contents( $path, '<?php // CACHE_ENABLER_DIR' );
-        $this->assertSame( 'wp-super-cache', ( new Dropin_Owner_Detector( $path ) )->detect() );
+        file_put_contents( $path, str_pad( $cache_enabler, $length ) );
+        touch( $path, $modified );
+        clearstatcache( true, $path );
 
-        directorist_page_cache_flush_provider_detection();
         $this->assertSame( 'cache-enabler', ( new Dropin_Owner_Detector( $path ) )->detect() );
+        $this->assertArrayHasKey( 'fingerprint', get_site_option( Dropin_Owner_Detector::CACHE_OPTION, [] ) );
 
         Dropin_Owner_Detector::invalidate_persistent_cache();
     }

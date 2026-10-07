@@ -9,8 +9,11 @@ final class Request_Policy {
     /** @var bool */
     private $enabled;
 
-    /** @var string[] */
-    private $rejected_cookie_prefixes;
+    /** @var Cookie_Policy */
+    private $cookie_policy;
+
+    /** @var bool */
+    private $cache_filtered_results;
 
     /** @var string[] */
     private $private_flags = [
@@ -32,43 +35,12 @@ final class Request_Policy {
     /**
      * @param bool     $enabled Whether page caching is enabled.
      * @param string[] $additional_rejected_cookie_prefixes Integration-owned prefixes.
+     * @param bool     $cache_filtered_results Whether normalized query variants may be cached.
      */
-    public function __construct( $enabled = false, array $additional_rejected_cookie_prefixes = [] ) {
+    public function __construct( $enabled = false, array $additional_rejected_cookie_prefixes = [], $cache_filtered_results = true ) {
         $this->enabled = (bool) $enabled;
-
-        $rejected_cookie_prefixes = array_merge(
-            [
-                'wordpress_logged_in_',
-                'wordpress_sec_',
-                'wp-postpass_',
-                'comment_author_',
-                'woocommerce_items_in_cart',
-                'woocommerce_cart_hash',
-                'wp_woocommerce_session_',
-                'edd_items_in_cart',
-                'atbdlc__selected_listings_id',
-            ],
-            $additional_rejected_cookie_prefixes
-        );
-
-        /**
-         * Filters cookie-name prefixes that make a response private.
-         *
-         * @param string[]      $rejected_cookie_prefixes Rejected prefixes.
-         * @param Request_Policy $policy                   Current policy.
-         */
-        $rejected_cookie_prefixes = apply_filters(
-            'directorist_page_cache_rejected_cookie_prefixes',
-            $rejected_cookie_prefixes,
-            $this
-        );
-        $rejected_cookie_prefixes = is_array( $rejected_cookie_prefixes ) ? $rejected_cookie_prefixes : [];
-
-        $this->rejected_cookie_prefixes = array_values(
-            array_unique(
-                array_filter( array_map( 'strval', $rejected_cookie_prefixes ), 'strlen' )
-            )
-        );
+        $this->cache_filtered_results = (bool) $cache_filtered_results;
+        $this->cookie_policy           = new Cookie_Policy( $additional_rejected_cookie_prefixes, $this );
     }
 
     /**
@@ -108,14 +80,22 @@ final class Request_Policy {
             return new Eligibility_Result( false, Eligibility_Result::BYPASS_HEADER, $bypass_header );
         }
 
-        foreach ( $context->get_cookie_names() as $cookie_name ) {
-            if ( $this->is_rejected_cookie( $cookie_name ) ) {
-                return new Eligibility_Result( false, Eligibility_Result::REJECTED_COOKIE, $cookie_name );
-            }
+        $cookie_result = $this->cookie_policy->evaluate( $context->get_cookies() );
+
+        if ( empty( $cookie_result['eligible'] ) ) {
+            $reason = 'invalid_cookie_variation' === $cookie_result['code']
+                ? Eligibility_Result::INVALID_COOKIE_VARIATION
+                : Eligibility_Result::REJECTED_COOKIE;
+
+            return new Eligibility_Result( false, $reason, $cookie_result['detail'] );
         }
 
         if ( ! empty( $context->get_query_args() ) && ! $context->is_query_supported() ) {
             return new Eligibility_Result( false, Eligibility_Result::UNSUPPORTED_QUERY );
+        }
+
+        if ( ! empty( $context->get_query_args() ) && ! $this->cache_filtered_results ) {
+            return new Eligibility_Result( false, Eligibility_Result::FILTERED_RESULTS_DISABLED );
         }
 
         /**
@@ -130,20 +110,6 @@ final class Request_Policy {
         }
 
         return new Eligibility_Result( true, Eligibility_Result::ELIGIBLE );
-    }
-
-    /**
-     * @param string $cookie_name Cookie name.
-     * @return bool
-     */
-    private function is_rejected_cookie( $cookie_name ) {
-        foreach ( $this->rejected_cookie_prefixes as $prefix ) {
-            if ( 0 === strpos( $cookie_name, $prefix ) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**

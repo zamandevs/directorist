@@ -53,9 +53,10 @@ final class Provider_Registry {
 
     /**
      * @param bool $discover_builtins Whether to inspect built-in integrations.
+     * @param bool $enforce_dropin_owner Whether the current drop-in must match the candidate.
      * @return Provider_Selection
      */
-    public function select( $discover_builtins = true ) {
+    public function select( $discover_builtins = true, $enforce_dropin_owner = true ) {
         if ( $discover_builtins ) {
             $this->register_builtins();
         }
@@ -69,7 +70,7 @@ final class Provider_Registry {
             return $this->remember( new Provider_Selection( null, 'no_available_provider', [], $dropin_owner ) );
         }
 
-        if ( 'unknown' === $dropin_owner ) {
+        if ( $enforce_dropin_owner && 'unknown' === $dropin_owner ) {
             return $this->remember( new Provider_Selection( null, 'unknown_dropin', $candidate_ids, $dropin_owner ) );
         }
 
@@ -80,7 +81,7 @@ final class Provider_Registry {
         $id       = $candidate_ids[0];
         $provider = $candidates[ $id ]['provider'];
 
-        if ( 'none' !== $dropin_owner && $id !== $dropin_owner ) {
+        if ( $enforce_dropin_owner && 'none' !== $dropin_owner && $id !== $dropin_owner ) {
             return $this->remember( new Provider_Selection( null, 'dropin_owner_mismatch', $candidate_ids, $dropin_owner ) );
         }
 

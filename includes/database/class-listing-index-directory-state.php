@@ -109,6 +109,20 @@ class Listing_Index_Directory_State {
     }
 
     public static function handle_configuration_change( $directory_id ) {
+        return self::queue_configuration( $directory_id, false );
+    }
+
+    /**
+     * Queue a fresh generation even when the configured field manifest did not change.
+     *
+     * @param int $directory_id Directory type term ID.
+     * @return bool
+     */
+    public static function queue_rebuild( $directory_id ) {
+        return self::queue_configuration( $directory_id, true );
+    }
+
+    private static function queue_configuration( $directory_id, $force ) {
         global $wpdb;
 
         $directory_id = (int) $directory_id;
@@ -122,7 +136,7 @@ class Listing_Index_Directory_State {
         $hash     = md5( $encoded );
         $state    = self::get( $directory_id, true );
 
-        if ( $hash === $state['active_config_hash'] && ! $state['pending_generation'] ) {
+        if ( ! $force && $hash === $state['active_config_hash'] && ! $state['pending_generation'] ) {
             return false;
         }
 
