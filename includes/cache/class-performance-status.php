@@ -88,7 +88,12 @@ final class Performance_Status {
             'warm_queue'    => $this->safe_array( $this->warm_status_resolver ),
             'cleanup'       => $this->safe_array( $this->cleanup_status_resolver ),
             'automation'    => [
-                'invalidation' => $provider['available'] && ( in_array( Provider_Capabilities::PURGE_SITE, $provider['capabilities'], true ) || in_array( Provider_Capabilities::PURGE_URL, $provider['capabilities'], true ) ),
+                'invalidation' => $provider['available'] && (
+                    in_array( Provider_Capabilities::PURGE_SITE, $provider['capabilities'], true )
+                    || in_array( Provider_Capabilities::PURGE_URL, $provider['capabilities'], true )
+                    || in_array( Provider_Capabilities::PURGE_URLS, $provider['capabilities'], true )
+                    || ( in_array( Provider_Capabilities::PURGE_DEPENDENCIES, $provider['capabilities'], true ) && in_array( Provider_Capabilities::PURGE_GENERATIONS, $provider['capabilities'], true ) )
+                ),
                 'warming'      => $provider['available'] && in_array( Provider_Capabilities::WARM_URLS, $provider['capabilities'], true ),
                 'cleanup'      => 'built_in' === $mode,
             ],
