@@ -2,6 +2,7 @@ import { __, _n, sprintf } from '@wordpress/i18n';
 import {
 	CacheActionResult,
 	CacheResource,
+	CacheStateFilter,
 	CacheVariantResponse,
 	PerformanceJob,
 	PerformanceSettings,
@@ -65,6 +66,18 @@ export function resourceScope(type: string, search: string, filters: ResourceFil
 		search,
 		...filters,
 	};
+}
+
+export function resourceCacheStateForProvider(state: CacheStateFilter, managed: boolean): CacheStateFilter {
+	return managed ? '' : state;
+}
+
+export function preloadCacheState(state: CacheStateFilter, managed: boolean): CacheStateFilter {
+	return managed ? '' : state || 'needs-refresh';
+}
+
+export function canPurgeFilteredResources(resources: CacheResource[]): boolean {
+	return resources.some((resource) => resource.actions.purge);
 }
 
 export function resourceActionUrlChunks(resources: CacheResource[], limit = 50) {
