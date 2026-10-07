@@ -13,7 +13,7 @@ namespace Directorist\database;
 defined( 'ABSPATH' ) || exit;
 
 class Listing_Index_Schema {
-    const VERSION = '3.0.0';
+    const VERSION = '3.0.1';
 
     const DATA_VERSION = '3.0.0';
 
@@ -135,6 +135,7 @@ class Listing_Index_Schema {
             indexed_at datetime NOT NULL,
             PRIMARY KEY  (listing_id),
             KEY status_price (post_status,price_set,listing_id),
+            KEY author_status_rating (author_id,post_status,rating_set,rating,listing_id),
             KEY directory_listing (directory_id,listing_id),
             KEY directory_featured (directory_id,featured_set,featured,post_date,listing_id),
             KEY directory_price (directory_id,price_set,price,listing_id),
@@ -528,6 +529,7 @@ class Listing_Index_Schema {
             self::listing_table()      => [
                 'PRIMARY'                 => 'listing_id',
                 'status_price'            => 'post_status,price_set,listing_id',
+                'author_status_rating'    => 'author_id,post_status,rating_set,rating,listing_id',
                 'directory_listing'       => 'directory_id,listing_id',
                 'directory_featured'      => 'directory_id,featured_set,featured,post_date,listing_id',
                 'directory_price'         => 'directory_id,price_set,price,listing_id',

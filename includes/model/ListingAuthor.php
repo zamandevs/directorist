@@ -51,7 +51,9 @@ class Directorist_Listing_Author {
             'posts_per_page' => -1,
         ];
 
-        return DB::get_listings_data( $args );
+        $statistics = directorist_get_author_listing_statistics( $this->id );
+
+        return new Directorist_Author_Listings_Result( $args, $statistics['listing_count'] );
     }
 
     // extract_user_id
@@ -125,31 +127,9 @@ class Directorist_Listing_Author {
     }
 
     public function get_rating() {
-        $user_listings = $this->all_listings;
-
-        $reviews_count = 0;
-        $reviews_sum   = 0;
-
-        if ( ! empty( $user_listings->ids ) ) {
-            // Prime caches to reduce future queries.
-            if ( function_exists( '_prime_post_caches' ) ) {
-                _prime_post_caches( $user_listings->ids );
-            }
-
-            foreach ( $user_listings->ids as $listings_id ) {
-                $average = directorist_get_listing_rating( $listings_id );
-
-                if ( $average > 0 ) {
-                    $reviews_sum    += $average;
-                    $reviews_count += 1;
-                }
-            }
-        }
-
-        $total_rating = 0;
-        if ( $reviews_count > 0 ) {
-            $total_rating = number_format( ( $reviews_sum / $reviews_count ), 1 );
-        }
+        $statistics   = directorist_get_author_listing_statistics( $this->id );
+        $reviews_count = $statistics['rated_listing_count'];
+        $total_rating  = $reviews_count > 0 ? number_format( $statistics['average_rating'], 1 ) : 0;
 
         $this->rating       = $total_rating;
         $this->total_review = $reviews_count;
@@ -158,7 +138,6 @@ class Directorist_Listing_Author {
     }
 
     public function get_review_count() {
-        $this->get_rating();
         return $this->total_review;
     }
 
@@ -375,5 +354,49 @@ class Directorist_Listing_Author {
         }
 
         return Helper::get_template_contents( 'author-contents', [ 'author' => $this ] );
+    }
+}
+
+/**
+ * Preserves the historical author `all_listings` result shape while deferring
+ * its unbounded ID query unless a third-party consumer explicitly requests it.
+ */
+class Directorist_Author_Listings_Result {
+    public $total;
+
+    public $total_pages = 1;
+
+    public $per_page = -1;
+
+    public $current_page = 1;
+
+    private $args;
+
+    private $ids;
+
+    public function __construct( array $args, $total ) {
+        $this->args  = $args;
+        $this->total = absint( $total );
+    }
+
+    public function __get( $name ) {
+        if ( 'ids' !== $name ) {
+            return null;
+        }
+
+        if ( null === $this->ids ) {
+            $results           = DB::get_listings_data( $this->args );
+            $this->ids         = $results->ids;
+            $this->total       = $results->total;
+            $this->total_pages = $results->total_pages;
+            $this->per_page    = $results->per_page;
+            $this->current_page = $results->current_page;
+        }
+
+        return $this->ids;
+    }
+
+    public function __isset( $name ) {
+        return 'ids' === $name;
     }
 }
