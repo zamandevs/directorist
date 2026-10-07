@@ -89,8 +89,10 @@ class Similar_Listing extends \WP_Widget {
                     'terms' => $atbd_tags_ids,
                 ],
             ],
-            'posts_per_page' => (int) $rel_listing_num,
-            'post__not_in' => [$post->ID],
+            'posts_per_page'            => (int) $rel_listing_num,
+            'post__not_in'              => [$post->ID],
+            'no_found_rows'             => true,
+            'directorist_query_purpose' => 'related_listing_collection',
         ];
         if ( ! empty( $same_author ) ) {
             $args['author']  = get_post_field( 'post_author', get_the_ID() );

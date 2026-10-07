@@ -54,6 +54,8 @@ class Directorist_Listing_Taxonomy {
 
     public $current_page;
 
+    public $batched_term_counts;
+
     public function __construct( $atts = [], $type = 'category' ) {
 
         $categories_view = get_directorist_option( 'display_categories_as', 'grid' );
@@ -154,6 +156,221 @@ class Directorist_Listing_Taxonomy {
         $this->current_page     = $current_page; // Store current page for reference
     }
 
+    public function get_batched_listing_counts( array $terms ) {
+        if ( null !== $this->batched_term_counts ) {
+            return $this->batched_term_counts;
+        }
+
+        if ( $this->has_count_query_filters() || ! apply_filters( 'directorist_use_batched_taxonomy_listing_counts', true, $this, $terms ) ) {
+            $this->batched_term_counts = false;
+            return false;
+        }
+
+        $term_ids = wp_parse_id_list( wp_list_pluck( $terms, 'term_id' ) );
+
+        if ( 'list' === $this->view ) {
+            foreach ( $term_ids as $term_id ) {
+                $children = get_term_children( $term_id, $this->tax );
+
+                if ( ! is_wp_error( $children ) ) {
+                    $term_ids = array_merge( $term_ids, $children );
+                }
+            }
+
+            $term_ids = array_values( array_unique( wp_parse_id_list( $term_ids ) ) );
+        }
+
+        if ( ! $term_ids ) {
+            $this->batched_term_counts = [];
+            return [];
+        }
+
+        $mapping = [];
+
+        foreach ( $term_ids as $term_id ) {
+            $descendants = get_term_children( $term_id, $this->tax );
+            $descendants = is_wp_error( $descendants ) ? [] : wp_parse_id_list( $descendants );
+
+            foreach ( array_merge( [ $term_id ], $descendants ) as $descendant_id ) {
+                $mapping[] = [ $term_id, $descendant_id ];
+            }
+        }
+
+        $mapping_limit = (int) apply_filters( 'directorist_taxonomy_count_batch_mapping_limit', 10000, $this, $term_ids );
+
+        if ( $mapping_limit < count( $mapping ) ) {
+            $this->batched_term_counts = false;
+            return false;
+        }
+
+        $cache_key = $this->taxonomy_count_cache_key( $term_ids, $mapping );
+
+        if ( $cache_key ) {
+            $cached = wp_cache_get( $cache_key, 'directorist_taxonomy_counts', false, $found );
+
+            if ( $found && is_array( $cached ) ) {
+                $this->batched_term_counts = $cached;
+                return $cached;
+            }
+        }
+
+        $counts = array_fill_keys( $term_ids, 0 );
+        $rows   = $this->query_batched_listing_counts( $mapping );
+
+        if ( null === $rows ) {
+            $this->batched_term_counts = false;
+            return false;
+        }
+
+        foreach ( $rows as $row ) {
+            $counts[ (int) $row->root_id ] = (int) $row->listing_count;
+        }
+
+        $counts = apply_filters( 'directorist_batched_taxonomy_listing_counts', $counts, $this, $terms );
+        $counts = is_array( $counts ) ? $counts : false;
+
+        if ( $cache_key && is_array( $counts ) ) {
+            wp_cache_set( $cache_key, $counts, 'directorist_taxonomy_counts' );
+        }
+
+        $this->batched_term_counts = $counts;
+        return $counts;
+    }
+
+    /** Raw counts cannot reproduce arbitrary existing WP_Query restrictions. */
+    protected function has_count_query_filters() {
+        global $wp_filter;
+
+        if ( is_admin() || has_filter( 'directorist_taxonomy_listing_count_query_arguments' ) ) {
+            return true;
+        }
+
+        $known = [
+            '_close_comments_for_old_posts',
+            'Directorist\\database\\Listing_Index_Query::apply_query_plan',
+            'Directorist\\Review\\Bootstrap::override_comments_pagination',
+            'ATBDP_User::restrict_listing_to_the_author',
+            'ATBDP_Listing::listing_type_search_query',
+            'ATBDP_Order::parse_query',
+            'ATBDP_GJSGeoQuery::posts_fields',
+            'ATBDP_GJSGeoQuery::posts_join',
+            'ATBDP_GJSGeoQuery::posts_where',
+            'ATBDP_GJSGeoQuery::posts_orderby',
+        ];
+        $hooks = [
+            'parse_query', 'pre_get_posts', 'parse_tax_query', 'posts_pre_query',
+            'posts_where', 'posts_join', 'posts_fields', 'posts_groupby', 'posts_distinct', 'posts_orderby', 'post_limits',
+            'posts_clauses', 'posts_clauses_request', 'posts_where_request', 'posts_join_request', 'posts_fields_request',
+            'posts_groupby_request', 'posts_distinct_request', 'posts_orderby_request', 'post_limits_request',
+            'posts_request', 'posts_results', 'the_posts', 'found_posts_query', 'found_posts',
+        ];
+
+        foreach ( $hooks as $hook ) {
+            if ( ! has_filter( $hook ) ) {
+                continue;
+            }
+
+            if ( ! isset( $wp_filter[ $hook ]->callbacks ) ) {
+                return true;
+            }
+
+            foreach ( $wp_filter[ $hook ]->callbacks as $callbacks ) {
+                foreach ( $callbacks as $callback ) {
+                    $function = $callback['function'];
+                    $name = is_array( $function )
+                        ? ( is_object( $function[0] ) ? get_class( $function[0] ) : $function[0] ) . '::' . $function[1]
+                        : $function;
+
+                    if ( ! is_string( $name ) || ! in_array( $name, $known, true ) ) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    protected function query_batched_listing_counts( array $mapping ) {
+        global $wpdb;
+
+        $mapping_sql = [];
+        $values      = [];
+
+        foreach ( $mapping as $position => $pair ) {
+            $mapping_sql[] = ( 0 === $position ) ? 'SELECT %d AS root_id, %d AS term_id' : 'UNION ALL SELECT %d, %d';
+            $values[]      = (int) $pair[0];
+            $values[]      = (int) $pair[1];
+        }
+
+        $directory_join = '';
+        $listing_type   = (int) $this->current_listing_type;
+
+        if ( $listing_type ) {
+            $directory_join = sprintf(
+                ' INNER JOIN %1$s directorist_count_type_rel ON directorist_count_type_rel.object_id = directorist_count_posts.ID INNER JOIN %2$s directorist_count_type_tt ON directorist_count_type_tt.term_taxonomy_id = directorist_count_type_rel.term_taxonomy_id AND directorist_count_type_tt.taxonomy = %%s AND directorist_count_type_tt.term_id = %%d',
+                $wpdb->term_relationships,
+                $wpdb->term_taxonomy
+            );
+        }
+
+        $sql = sprintf(
+            'SELECT /* directorist_taxonomy_count_batch */ directorist_count_map.root_id, COUNT(DISTINCT directorist_count_rel.object_id) AS listing_count FROM (%1$s) directorist_count_map INNER JOIN %2$s directorist_count_tt ON directorist_count_tt.term_id = directorist_count_map.term_id AND directorist_count_tt.taxonomy = %%s INNER JOIN %3$s directorist_count_rel ON directorist_count_rel.term_taxonomy_id = directorist_count_tt.term_taxonomy_id INNER JOIN %4$s directorist_count_posts ON directorist_count_posts.ID = directorist_count_rel.object_id %5$s WHERE directorist_count_posts.post_type = %%s AND directorist_count_posts.post_status = %%s GROUP BY directorist_count_map.root_id',
+            implode( ' ', $mapping_sql ),
+            $wpdb->term_taxonomy,
+            $wpdb->term_relationships,
+            $wpdb->posts,
+            $directory_join
+        );
+
+        $values[] = $this->tax;
+
+        if ( $listing_type ) {
+            $values[] = ATBDP_TYPE;
+            $values[] = $listing_type;
+        }
+
+        $values[] = ATBDP_POST_TYPE;
+        $values[] = 'publish';
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Placeholders are assembled above and prepared with all values.
+        $prepared = $wpdb->prepare( $sql, $values );
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery -- Exact grouped count has no equivalent bounded WP API.
+        return $wpdb->get_results( $prepared );
+    }
+
+    protected function taxonomy_count_cache_key( array $term_ids, array $mapping ) {
+        if ( ! function_exists( 'wp_cache_get_last_changed' ) ) {
+            return '';
+        }
+
+        return md5(
+            wp_json_encode(
+                [
+                    'blog_id'      => get_current_blog_id(),
+                    'user_id'      => get_current_user_id(),
+                    'locale'       => determine_locale(),
+                    'taxonomy'     => $this->tax,
+                    'listing_type' => (int) $this->current_listing_type,
+                    'term_ids'     => $term_ids,
+                    'mapping'      => $mapping,
+                    'posts'        => wp_cache_get_last_changed( 'posts' ),
+                    'terms'        => wp_cache_get_last_changed( 'terms' ),
+                ]
+            )
+        );
+    }
+
+    protected function listing_count( $term_id ) {
+        if ( is_array( $this->batched_term_counts ) && array_key_exists( (int) $term_id, $this->batched_term_counts ) ) {
+            return (int) $this->batched_term_counts[ (int) $term_id ];
+        }
+
+        return ( 'category' === $this->type )
+            ? atbdp_listings_count_by_category( $term_id, $this->current_listing_type )
+            : atbdp_listings_count_by_location( $term_id, $this->current_listing_type );
+    }
+
     public function grid_count_html( $term, $total ) {
         $html = '';
 
@@ -215,7 +432,7 @@ class Directorist_Listing_Taxonomy {
                 $plus_icon = ! empty( $child_category ) ? '<span class="directorist-taxonomy-list__sub-item-toggler"></span>' : '';
                 $count = 0;
                 if ( $this->hide_empty || $this->show_count ) {
-                    $count = ( $this->type == 'category' ) ? atbdp_listings_count_by_category( $term->term_id, $this->current_listing_type ) : atbdp_listings_count_by_location( $term->term_id, $this->current_listing_type );
+                    $count = $this->listing_count( $term->term_id );
 
                     if ( $this->hide_empty && 0 == $count ) continue;
                 }
@@ -295,12 +512,16 @@ class Directorist_Listing_Taxonomy {
     public function tax_data() {
         $result = [];
 
+        if ( $this->hide_empty || $this->show_count ) {
+            $this->get_batched_listing_counts( $this->terms );
+        }
+
         foreach ( $this->terms as $term ) {
             
             $current_listing_type   = $this->current_listing_type;
             $count                  = 0;
             if ( $this->hide_empty || $this->show_count ) {
-                $count = ( $this->type == 'category' ) ? atbdp_listings_count_by_category( $term->term_id, $current_listing_type ) : atbdp_listings_count_by_location( $term->term_id, $current_listing_type );
+                $count = $this->listing_count( $term->term_id );
 
                 if ( $this->hide_empty && 0 == $count ) {
                     continue;

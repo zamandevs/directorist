@@ -80,9 +80,11 @@ class Popular_Listings extends \WP_Widget {
         $count = apply_filters( 'atbdp_popular_listing_number', $count );
 
         $args = [
-            'post_type'      => ATBDP_POST_TYPE,
-            'post_status'    => 'publish',
-            'posts_per_page' => $count,
+            'post_type'                 => ATBDP_POST_TYPE,
+            'post_status'               => 'publish',
+            'posts_per_page'            => $count,
+            'no_found_rows'             => true,
+            'directorist_query_purpose' => 'popular_listing_collection',
         ];
 
         $has_featured               = directorist_is_featured_listing_enabled() || is_fee_manager_active();
