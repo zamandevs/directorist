@@ -10,6 +10,10 @@ namespace Directorist\Asset_Loader;
 defined( 'ABSPATH' ) || exit;
 
 class Render_Context {
+    protected static $file_context_cache = [];
+
+    protected static $normalized_path_cache = [];
+
     /**
      * Build a normalized render context.
      *
@@ -22,28 +26,29 @@ class Render_Context {
     protected static function normalize( $template, $file = '', $context = [] ) {
         $context = is_array( $context ) ? $context : [];
         $file    = is_string( $file ) ? $file : '';
+        $file_context = self::file_context( $file );
 
         $defaults = [
-            'source'         => self::source_from_file( $file ),
+            'source'         => $file_context['source'],
             'template'       => is_string( $template ) ? $template : '',
             'file'           => $file,
             'shortcode_key'  => '',
             'block'          => '',
-            'extension'      => self::extension_from_file( $file ),
-            'theme_override' => self::is_theme_override( $file ),
+            'extension'      => $file_context['extension'],
+            'theme_override' => $file_context['theme_override'],
         ];
 
         $context = array_merge( $defaults, $context );
 
         if ( empty( $context['source'] ) || 'unknown' === $context['source'] ) {
-            $context['source'] = self::source_from_file( $file );
+            $context['source'] = $file_context['source'];
         }
 
         if ( empty( $context['extension'] ) ) {
-            $context['extension'] = self::extension_from_file( $file );
+            $context['extension'] = $file_context['extension'];
         }
 
-        $context['theme_override'] = ! empty( $context['theme_override'] ) || self::is_theme_override( $file );
+        $context['theme_override'] = ! empty( $context['theme_override'] ) || $file_context['theme_override'];
 
         return $context;
     }
@@ -90,23 +95,8 @@ class Render_Context {
      * @return string
      */
     protected static function source_from_file( $file ) {
-        if ( ! $file ) {
-            return 'unknown';
-        }
-
-        if ( self::is_theme_override( $file ) ) {
-            return 'theme';
-        }
-
-        if ( self::is_path_within( $file, defined( 'ATBDP_DIR' ) ? ATBDP_DIR : '' ) ) {
-            return 'core';
-        }
-
-        if ( self::extension_from_file( $file ) ) {
-            return 'extension';
-        }
-
-        return 'unknown';
+        $context = self::file_context( $file );
+        return $context['source'];
     }
 
     /**
@@ -117,24 +107,8 @@ class Render_Context {
      * @return bool
      */
     protected static function is_theme_override( $file ) {
-        if ( ! $file ) {
-            return false;
-        }
-
-        $theme_dirs = array_filter(
-            [
-                function_exists( 'get_stylesheet_directory' ) ? get_stylesheet_directory() : '',
-                function_exists( 'get_template_directory' ) ? get_template_directory() : '',
-            ]
-        );
-
-        foreach ( $theme_dirs as $theme_dir ) {
-            if ( self::is_path_within( $file, $theme_dir ) ) {
-                return true;
-            }
-        }
-
-        return false;
+        $context = self::file_context( $file );
+        return $context['theme_override'];
     }
 
     /**
@@ -145,21 +119,68 @@ class Render_Context {
      * @return string
      */
     public static function extension_from_file( $file ) {
-        if ( ! $file || ! defined( 'WP_PLUGIN_DIR' ) || self::is_path_within( $file, defined( 'ATBDP_DIR' ) ? ATBDP_DIR : '' ) ) {
-            return '';
+        $context = self::file_context( $file );
+        return $context['extension'];
+    }
+
+    protected static function file_context( $file ) {
+        $file = is_string( $file ) ? $file : '';
+        $theme_dirs = array_values(
+            array_filter(
+                [
+                    function_exists( 'get_stylesheet_directory' ) ? get_stylesheet_directory() : '',
+                    function_exists( 'get_template_directory' ) ? get_template_directory() : '',
+                ]
+            )
+        );
+        $core_dir   = defined( 'ATBDP_DIR' ) ? ATBDP_DIR : '';
+        $plugin_dir = defined( 'WP_PLUGIN_DIR' ) ? WP_PLUGIN_DIR : '';
+        $cache_key  = md5( serialize( [ $file, $theme_dirs, $core_dir, $plugin_dir ] ) );
+
+        if ( isset( self::$file_context_cache[ $cache_key ] ) ) {
+            return self::$file_context_cache[ $cache_key ];
         }
 
-        $plugin_dir = self::normalize_path( WP_PLUGIN_DIR );
-        $file_path  = self::normalize_path( $file );
+        $context = [
+            'source'         => 'unknown',
+            'extension'      => '',
+            'theme_override' => false,
+        ];
 
-        if ( 0 !== strpos( $file_path, trailingslashit( $plugin_dir ) ) ) {
-            return '';
+        if ( ! $file ) {
+            self::$file_context_cache[ $cache_key ] = $context;
+            return $context;
         }
 
-        $relative = ltrim( substr( $file_path, strlen( trailingslashit( $plugin_dir ) ) ), '/' );
-        $parts    = explode( '/', $relative );
+        foreach ( $theme_dirs as $theme_dir ) {
+            if ( self::is_path_within( $file, $theme_dir ) ) {
+                $context['source']         = 'theme';
+                $context['theme_override'] = true;
+                self::$file_context_cache[ $cache_key ] = $context;
+                return $context;
+            }
+        }
 
-        return sanitize_key( $parts[0] ?? '' );
+        if ( self::is_path_within( $file, $core_dir ) ) {
+            $context['source'] = 'core';
+            self::$file_context_cache[ $cache_key ] = $context;
+            return $context;
+        }
+
+        if ( $plugin_dir && self::is_path_within( $file, $plugin_dir ) ) {
+            $normalized_plugin_dir = trailingslashit( self::normalize_path( $plugin_dir ) );
+            $normalized_file       = self::normalize_path( $file );
+            $relative              = ltrim( substr( $normalized_file, strlen( $normalized_plugin_dir ) ), '/' );
+            $parts                 = explode( '/', $relative );
+            $context['extension']  = sanitize_key( $parts[0] ?? '' );
+
+            if ( $context['extension'] ) {
+                $context['source'] = 'extension';
+            }
+        }
+
+        self::$file_context_cache[ $cache_key ] = $context;
+        return $context;
     }
 
     protected static function is_path_within( $file, $directory ) {
@@ -174,12 +195,19 @@ class Render_Context {
     }
 
     protected static function normalize_path( $path ) {
+        $cache_key = (string) $path;
+
+        if ( array_key_exists( $cache_key, self::$normalized_path_cache ) ) {
+            return self::$normalized_path_cache[ $cache_key ];
+        }
+
         $real = realpath( $path );
 
         if ( $real ) {
             $path = $real;
         }
 
-        return str_replace( '\\', '/', rtrim( $path, '/\\' ) );
+        self::$normalized_path_cache[ $cache_key ] = str_replace( '\\', '/', rtrim( $path, '/\\' ) );
+        return self::$normalized_path_cache[ $cache_key ];
     }
 }
