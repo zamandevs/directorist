@@ -8,6 +8,7 @@ use Directorist\Cache\WP_Fastest_Cache_Compatibility;
 
 final class Directorist_Page_Cache_WP_Fastest_Compatibility_Provider implements Cache_Provider {
     public $invalidations = [];
+    public $purge_success = true;
 
     public function get_id() {
         return 'wp-fastest-cache';
@@ -28,7 +29,7 @@ final class Directorist_Page_Cache_WP_Fastest_Compatibility_Provider implements 
     public function invalidate( array $request ) {
         $this->invalidations[] = $request;
 
-        return [ 'success' => true, 'code' => 'purged_site' ];
+        return [ 'success' => $this->purge_success, 'code' => 'purged_site' ];
     }
 
     public function warm( array $urls ) {
@@ -137,7 +138,52 @@ class Directorist_Page_Cache_WP_Fastest_Cache_Compatibility_Test extends WP_Unit
         $this->assertSame( [], WP_Fastest_Cache_Compatibility::current() );
     }
 
-    private function compatibility( array &$rules, &$writes, &$refresh, $refresh_success = true ) {
+    public function test_private_paths_have_native_page_rules_and_do_not_remove_user_rules() {
+        $original = [
+            [ 'type' => 'page', 'prefix' => 'contain', 'content' => '/customer-private/' ],
+            [ 'type' => 'page', 'prefix' => 'contain', 'content' => '/directorist-page-cache-private/' ],
+        ];
+        $rules    = $original;
+        $writes   = 0;
+        $refresh  = 0;
+        $compat   = $this->compatibility( $rules, $writes, $refresh, true, [ '/submission/', '/account/' ] );
+        $provider = new Directorist_Page_Cache_WP_Fastest_Compatibility_Provider();
+        $compat->activate( $provider );
+        $managed = array_values( array_filter( $rules, static function ( $rule ) { return $rule['type'] === 'page' && $rule['prefix'] === 'regex'; } ) );
+        $this->assertCount( 1, $managed );
+        foreach ( [ '/submission/', '/submission/edit/', '/submission?edit=1', '/account/' ] as $path ) {
+            $this->assertSame( 1, preg_match( '/' . $managed[0]['content'] . '/i', $path ), $path );
+        }
+        $this->assertSame( 0, preg_match( '/' . $managed[0]['content'] . '/i', '/all-listings/' ) );
+        $compat->activate( $provider );
+        $this->assertCount( 1, $provider->invalidations );
+        $compat->deactivate();
+        $this->assertSame( $original, $rules );
+    }
+
+    public function test_failed_purge_retries_without_rewriting_and_upgrade_purges_once() {
+        $rules = [];
+        $writes = 0;
+        $refresh = 0;
+        $provider = new Directorist_Page_Cache_WP_Fastest_Compatibility_Provider();
+        $provider->purge_success = false;
+        $compat = $this->compatibility( $rules, $writes, $refresh, true, [ '/account/' ] );
+        $this->assertSame( 'configuration_purge_failed', $compat->activate( $provider )['code'] );
+        $this->assertSame( '', WP_Fastest_Cache_Compatibility::current()['applied_hash'] );
+        $provider->purge_success = true;
+        $compat->activate( $provider );
+        $this->assertSame( 1, $writes );
+        $status = WP_Fastest_Cache_Compatibility::current();
+        $status['applied_hash'] = 'old-policy';
+        $status['config_hash'] = 'old-policy';
+        update_option( WP_Fastest_Cache_Compatibility::OPTION_NAME, $status );
+        $compat->activate( $provider );
+        $compat->activate( $provider );
+        $this->assertCount( 3, $provider->invalidations );
+        $this->assertSame( 2, $refresh );
+    }
+
+    private function compatibility( array &$rules, &$writes, &$refresh, $refresh_success = true, array $paths = [] ) {
         return new WP_Fastest_Cache_Compatibility(
             [
                 'read_rules'        => static function () use ( &$rules ) {
@@ -155,6 +201,9 @@ class Directorist_Page_Cache_WP_Fastest_Cache_Compatibility_Test extends WP_Unit
                     return is_callable( $refresh_success ) ? (bool) call_user_func( $refresh_success ) : $refresh_success;
                 },
                 'cookie_policy'     => [ $this, 'cookie_policy' ],
+                'private_paths'     => static function () use ( $paths ) {
+                    return $paths;
+                },
                 'warm_after_repair' => static function () {
                     return [ 'success' => true, 'code' => 'unsupported' ];
                 },

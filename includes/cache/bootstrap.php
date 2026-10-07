@@ -60,6 +60,7 @@ namespace Directorist\Cache {
             ];
 
             static $provider_compatibility_class_map = [
+                'Directorist\\Cache\\External_Response_Guard' => 'class-external-response-guard.php',
                 'Directorist\\Cache\\Cache_Enabler_Compatibility'    => 'class-cache-enabler-compatibility.php',
                 'Directorist\\Cache\\WP_Fastest_Cache_Compatibility' => 'class-wp-fastest-cache-compatibility.php',
             ];
@@ -2457,6 +2458,14 @@ namespace {
 
                 if ( 'wp-rocket' === $provider->get_id() ) {
                     directorist_page_cache_wp_rocket_compatibility()->register();
+                }
+
+                if ( 'cache-enabler' === $provider->get_id() ) {
+                    directorist_page_cache_cache_enabler_compatibility()->register();
+                }
+
+                if ( 'wp-fastest-cache' === $provider->get_id() ) {
+                    directorist_page_cache_wp_fastest_cache_compatibility()->register();
                 }
 
                 if ( 'directorist-cache' === $provider->get_id() ) {
