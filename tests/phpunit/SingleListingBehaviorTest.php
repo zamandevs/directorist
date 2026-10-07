@@ -481,6 +481,31 @@ class Directorist_Single_Listing_Behavior_Test extends WP_UnitTestCase {
         $this->assertSame( '', $html );
     }
 
+    public function test_scalar_single_field_types_normalize_legacy_array_meta_before_theme_rendering() {
+        update_post_meta( $this->listing_id, '_website', [ 'https://example.com', '' ] );
+        update_post_meta( $this->listing_id, '_feature_list', [ 'First feature', 'Second feature' ] );
+        $this->reset_single_listing();
+        $listing = Directorist_Single_Listing::instance( $this->listing_id );
+
+        $url          = $listing->get_field_state(
+            [
+                'widget_name'  => 'url',
+                'widget_group' => 'custom',
+                'field_key'    => 'website',
+            ]
+        );
+        $feature_list = $listing->get_field_state(
+            [
+                'widget_name'  => 'onelisting_feature_list',
+                'widget_group' => 'preset',
+                'field_key'    => 'feature_list',
+            ]
+        );
+
+        $this->assertSame( 'https://example.com', $url['value'] );
+        $this->assertSame( "First feature\nSecond feature", $feature_list['value'] );
+    }
+
     public function test_related_listing_model_primes_visible_posts_once() {
         $listings = new Directorist_Listings(
             [ 'directory_type' => (string) $this->directory_id ],
