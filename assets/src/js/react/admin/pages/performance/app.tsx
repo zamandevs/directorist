@@ -14,6 +14,7 @@ import { __, _n, sprintf } from '@wordpress/i18n';
 import { chevronDown, chevronLeft, chevronRight, chevronUp, closeSmall, cog, external, info, trash, update } from '@wordpress/icons';
 import { homeUrl, mutate, read } from './api';
 import { cacheActionMessage, cacheActionRefreshMode, clearPendingResourceActions, completedPerformancePollTargets, markPendingResourceActions, markPurgedResourceRows, nextCacheStateSort, nextModifiedSort, pageCacheMode, paginationMode, performanceFailureLabel, performanceJobDescription, performanceJobFailureMessage, performanceJobOutcome, performancePollDelay, performancePollTargets, resourceActionIsPending, resourceActionUrlChunks, resourceFilterCount, resourceScope, selectedWarmFailureMessage, selectedWarmSuccessMessage, selectedWarmValidationMessage, settingsAreEqual, timestampDate, variantOutcome, warmQueueIsActive, warmQueuePollDelay } from './model';
+import { canPurgeFilteredResources, preloadCacheState, resourceCacheStateForProvider } from './model';
 import {
 	CacheActionResult,
 	CacheCoverage as CacheCoverageData,
@@ -444,6 +445,14 @@ export default function App() {
 	const directoryRequest = useRef(0);
 	const previousPollTargets = useRef({ pageCache: false, listingIndex: false });
 	const pendingResourceActionsRef = useRef<PendingResourceActions>({});
+	const managedCache = Boolean(summary?.page_cache.provider.managed && summary.page_cache.provider.available);
+	const effectiveCacheState = resourceCacheStateForProvider(resourceCacheState, managedCache);
+
+	useEffect(() => {
+		if (!managedCache) return;
+		setResourceCacheState('');
+		setResourceSort((current) => current.orderby === 'cache_state' ? { orderby: 'id', order: 'ASC' } : current);
+	}, [managedCache]);
 
 	const loadSummary = useCallback(async () => {
 		const result = await read<PerformanceSummary>('/summary');
@@ -461,7 +470,7 @@ export default function App() {
 		const requestId = ++resourceRequest.current;
 		if (!options.silent) setResourceLoading(true);
 		try {
-			const result = await read<ResourceResponse>('/resources', { page: resourcePage, per_page: resourcePerPage, ...resourceScope(resourceType, resourceSearch, resourceFilters), ...resourceSort, cache_state: resourceCacheState });
+			const result = await read<ResourceResponse>('/resources', { page: resourcePage, per_page: resourcePerPage, ...resourceScope(resourceType, resourceSearch, resourceFilters), ...resourceSort, cache_state: effectiveCacheState });
 			if (requestId === resourceRequest.current) {
 				setResources(result);
 				if (result.page !== resourcePage) setResourcePage(result.page);
@@ -473,7 +482,7 @@ export default function App() {
 		} finally {
 			if (requestId === resourceRequest.current) setResourceLoading(false);
 		}
-	}, [resourceCacheState, resourceFilters, resourcePage, resourcePerPage, resourceSearch, resourceSort, resourceType]);
+	}, [effectiveCacheState, resourceFilters, resourcePage, resourcePerPage, resourceSearch, resourceSort, resourceType]);
 
 	const loadDirectories = useCallback(async () => {
 		const requestId = ++directoryRequest.current;
@@ -775,15 +784,15 @@ export default function App() {
 	const canWarmSelected = selectedResources.some((item) => item.actions.warm && !resourceActionIsPending(pendingResourceActions, item.id));
 	const canPurgeSelected = selectedResources.some((item) => item.actions.purge && !resourceActionIsPending(pendingResourceActions, item.id));
 	const activeResourceFilterCount = resourceFilterCount(resourceFilters);
-	const currentResourceScope = { ...resourceScope(resourceType, resourceSearch, resourceFilters), cache_state: resourceCacheState };
-	const resourceFiltered = resourceType !== 'all' || Boolean(resourceSearch) || activeResourceFilterCount > 0 || Boolean(resourceCacheState);
+	const currentResourceScope = { ...resourceScope(resourceType, resourceSearch, resourceFilters), cache_state: effectiveCacheState };
+	const resourceFiltered = resourceType !== 'all' || Boolean(resourceSearch) || activeResourceFilterCount > 0 || Boolean(effectiveCacheState);
 	const directoryFiltered = Boolean(directorySearch);
 
 	if (loading) return <div className="directorist-performance-loading"><Spinner /><span>{__('Loading Directorist Performance...', 'directorist')}</span></div>;
 	if (!summary || !settingsValue || !savedSettings) return <div className="directorist-performance-load-error" role="alert"><h1>{__('Performance', 'directorist')}</h1><p>{initialError || __('Performance data is temporarily unavailable.', 'directorist')}</p><Button variant="primary" icon={update} onClick={loadInitial}>{__('Try again', 'directorist')}</Button></div>;
 	const cacheMode = pageCacheMode(summary.page_cache);
 
-	const retryJob = () => runCacheAction(summary.job.action === 'purge' ? 'purge-filtered' : 'warm-filtered', { ...(summary.job.scope || {}) });
+	const retryJob = () => runCacheAction(summary.job.action === 'purge' ? 'purge-filtered' : 'warm-filtered', { ...(summary.job.scope || {}), cache_state: resourceCacheStateForProvider(summary.job.scope?.cache_state || '', managedCache) });
 	const switchTab = (nextTab: PerformanceTab) => {
 		if (nextTab === tab) return;
 		const next = new URL(window.location.href);
@@ -858,8 +867,8 @@ export default function App() {
 							<div className="directorist-performance-section-heading">
 								<div><h2>{__('Directory content', 'directorist')}</h2><p>{__('Review and refresh cacheable Directorist pages.', 'directorist')}</p></div>
 								<div>
-									<Button variant="primary" icon={update} disabled={busy || resourceLoading || resources.total < 1 || !summary.page_cache.automation.warming} onClick={() => runCacheAction('warm-filtered', { ...currentResourceScope, cache_state: resourceCacheState || 'needs-refresh' })}>{resourceType === 'listing' ? __('Preload listings', 'directorist') : resourceFiltered ? __('Preload results', 'directorist') : __('Preload uncached content', 'directorist')}</Button>
-									<Button variant="secondary" isDestructive disabled={busy || !summary.page_cache.automation.invalidation || (resourceFiltered && resources.total < 1)} onClick={() => setConfirmation({ title: resourceFiltered ? __('Purge matching cache?','directorist') : __('Purge all Directorist cache?', 'directorist'), text: resourceFiltered ? __('Cached responses matching the current content filters will be removed.', 'directorist') : __('Cached Directorist pages will be regenerated automatically as they are requested.', 'directorist'), actionLabel: __('Purge cache', 'directorist'), destructive: true, run: () => runCacheAction(resourceFiltered ? 'purge-filtered' : 'purge-all', currentResourceScope) })}>{resourceFiltered ? __('Purge results', 'directorist') : __('Purge all', 'directorist')}</Button>
+									<Button variant="primary" icon={update} disabled={busy || resourceLoading || resources.total < 1 || !summary.page_cache.automation.warming} onClick={() => runCacheAction('warm-filtered', { ...currentResourceScope, cache_state: preloadCacheState(effectiveCacheState, managedCache) })}>{resourceType === 'listing' ? __('Preload listings', 'directorist') : resourceFiltered ? __('Preload results', 'directorist') : managedCache ? __('Preload content', 'directorist') : __('Preload uncached content', 'directorist')}</Button>
+									{(!resourceFiltered || canPurgeFilteredResources(resourceData.items)) && <Button variant="secondary" isDestructive disabled={busy || !summary.page_cache.automation.invalidation || (resourceFiltered && resources.total < 1)} onClick={() => setConfirmation({ title: resourceFiltered ? __('Purge matching cache?','directorist') : __('Purge all Directorist cache?', 'directorist'), text: resourceFiltered ? __('Cached responses matching the current content filters will be removed.', 'directorist') : __('Cached Directorist pages will be regenerated automatically as they are requested.', 'directorist'), actionLabel: __('Purge cache', 'directorist'), destructive: true, run: () => runCacheAction(resourceFiltered ? 'purge-filtered' : 'purge-all', currentResourceScope) })}>{resourceFiltered ? __('Purge results', 'directorist') : __('Purge all', 'directorist')}</Button>}
 								</div>
 							</div>
 

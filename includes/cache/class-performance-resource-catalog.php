@@ -55,7 +55,7 @@ final class Performance_Resource_Catalog {
      */
     public function get_items( array $args = [] ) {
         $args                   = $this->normalize_args( $args );
-        $state_query            = '' !== $args['cache_state'] || 'cache_state' === $args['orderby'];
+        $state_query            = ! $this->uses_managed_state() && ( '' !== $args['cache_state'] || 'cache_state' === $args['orderby'] );
         $source_args            = $args;
         $store_status           = $this->store instanceof Performance_Resource_Store ? $this->store->status() : [];
         $active_generation      = 'ready' === ( isset( $store_status['state'] ) ? $store_status['state'] : '' )
@@ -389,6 +389,18 @@ final class Performance_Resource_Catalog {
      * @return array
      */
     public function canonical_source( array $args ) {
+        if ( $this->uses_managed_state() ) {
+            $state = $this->provider_available() ? 'managed' : 'unavailable';
+            // Built-in records cannot attest another provider's cache inventory.
+            if ( '' !== $args['cache_state'] && $state !== $args['cache_state'] ) {
+                return [ 'items' => [], 'total' => 0, 'state_applied' => true ];
+            }
+            $args['cache_state'] = '';
+            if ( 'cache_state' === $args['orderby'] ) {
+                $args['orderby'] = 'id';
+            }
+        }
+
         if ( $this->use_persistent_source && $this->store instanceof Performance_Resource_Store ) {
             $stored = $this->store->query( $args );
 
@@ -1188,6 +1200,10 @@ final class Performance_Resource_Catalog {
         }
 
         return $this->filter_source_result( is_array( $result ) ? $result : [], $args );
+    }
+
+    private function uses_managed_state() {
+        return $this->use_persistent_source && [ $this, 'resolve_cache_state' ] === $this->state_resolver && 'directorist-cache' !== $this->provider_id();
     }
 
     private function provider_id() {

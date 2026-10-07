@@ -1,6 +1,7 @@
 import {
 	cacheActionMessage,
 	cacheActionRefreshMode,
+	canPurgeFilteredResources,
 	clearPendingResourceActions,
 	completedPerformancePollTargets,
 	isInteractivePerformanceJob,
@@ -20,6 +21,8 @@ import {
 	resourceActionUrlChunks,
 	resourceFilterCount,
 	resourceScope,
+	resourceCacheStateForProvider,
+	preloadCacheState,
 	settingsAreEqual,
 	timestampDate,
 	variantOutcome,
@@ -32,6 +35,25 @@ import {
 import { CacheResource } from './types';
 
 describe('Performance dashboard view model', () => {
+	it('does not infer managed-provider preload state from built-in cache records', () => {
+		for (const state of ['', 'current', 'needs-refresh', 'failed'] as const) {
+			expect(resourceCacheStateForProvider(state, true)).toBe('');
+			expect(preloadCacheState(state, true)).toBe('');
+		}
+	});
+
+	it('retains built-in filters and its uncached preload default', () => {
+		expect(resourceCacheStateForProvider('current', false)).toBe('current');
+		expect(preloadCacheState('', false)).toBe('needs-refresh');
+		expect(preloadCacheState('failed', false)).toBe('failed');
+	});
+
+	it('only offers filtered purge when resource capabilities support it', () => {
+		expect(canPurgeFilteredResources([])).toBe(false);
+		expect(canPurgeFilteredResources([{ actions: { purge: false, warm: true } }] as CacheResource[])).toBe(false);
+		expect(canPurgeFilteredResources([{ actions: { purge: true, warm: true } }] as CacheResource[])).toBe(true);
+	});
+
 	it('describes warm progress using the requested resource type and URL variant count', () => {
 		expect(performanceJobDescription({
 			action: 'warm',
