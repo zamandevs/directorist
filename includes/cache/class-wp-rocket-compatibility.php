@@ -76,11 +76,16 @@ final class WP_Rocket_Compatibility {
             : ( isset( $runtime['refresh_config'] ) ? '__return_true' : [ $this, 'provider_configuration_is_current' ] );
 
         $this->provider_resolver = isset( $runtime['provider_resolver'] ) && is_callable( $runtime['provider_resolver'] ) ? $runtime['provider_resolver'] : static function () {
-            if ( ! function_exists( 'directorist_page_cache_provider_registry' ) ) {
+            if ( ! function_exists( 'rocket_clean_domain' ) ) {
                 return null;
             }
 
-            return directorist_page_cache_provider_registry()->select()->get_provider();
+            // Cleanup needs native purge access, not an enabled delivery engine.
+            // This maintenance adapter is never registered for cache selection.
+            return new WP_Rocket_Provider( [
+                'purge_site' => static function () { rocket_clean_domain(); },
+                'version' => defined( 'WP_ROCKET_VERSION' ) ? WP_ROCKET_VERSION : '',
+            ] );
         };
         $this->guard_path        = isset( $runtime['guard_path'] ) && is_callable( $runtime['guard_path'] ) ? $runtime['guard_path'] : static function () {
             return __DIR__ . '/class-wp-rocket-early-guard.php';
