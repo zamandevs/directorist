@@ -3,12 +3,17 @@
 namespace Directorist\Cache;
 
 /**
- * Adds reversible language-cookie exclusions to WP Fastest Cache.
+ * Adds reversible private-route and cookie exclusions to WP Fastest Cache.
  */
 final class WP_Fastest_Cache_Compatibility {
     const OPTION_NAME            = 'directorist_page_cache_wpfc_compatibility_v1';
     const MANAGED_MARKER         = 'directorist-page-cache-language';
-    const REQUEST_POLICY_VERSION = 1;
+    const PRIVATE_MARKER         = 'directorist-page-cache-private';
+    const REQUEST_POLICY_VERSION = 2;
+
+    private $private_paths;
+    private $response_guard;
+    private $registered = false;
 
     /** @var callable */
     private $read_rules;
@@ -32,6 +37,16 @@ final class WP_Fastest_Cache_Compatibility {
      * @param array $runtime Test/runtime boundaries.
      */
     public function __construct( array $runtime = [] ) {
+        $this->private_paths = isset( $runtime['private_paths'] ) && is_callable( $runtime['private_paths'] ) ? $runtime['private_paths'] : [ External_Response_Guard::class, 'private_paths' ];
+        if ( ! isset( $runtime['deny_cache'] ) ) {
+            $runtime['deny_cache'] = static function () {
+                if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+                    define( 'DONOTCACHEPAGE', true );
+                }
+                do_action( 'wpfc_exclude_current_page' );
+            };
+        }
+        $this->response_guard = new External_Response_Guard( $runtime );
         $this->read_rules        = isset( $runtime['read_rules'] ) && is_callable( $runtime['read_rules'] ) ? $runtime['read_rules'] : static function () {
             $rules = json_decode( (string) get_option( 'WpFastestCacheExclude', '' ), true );
 
@@ -72,6 +87,21 @@ final class WP_Fastest_Cache_Compatibility {
         };
     }
 
+    public function register() {
+        if ( $this->registered ) {
+            return false;
+        }
+        $this->response_guard->register();
+        add_filter( 'wpfc_buffer_callback_filter', [ $this, 'filter_buffer' ], PHP_INT_MAX, 2 );
+        $this->registered = true;
+        return true;
+    }
+
+    public function filter_buffer( $buffer, $phase ) {
+        // An empty filter result vetoes native storage, not the response body.
+        return in_array( $phase, [ 'html', 'cache' ], true ) && ! $this->response_guard->allows_storage() ? '' : $buffer;
+    }
+
     /**
      * @param Cache_Provider $provider Selected WP Fastest Cache provider.
      * @return array
@@ -84,6 +114,11 @@ final class WP_Fastest_Cache_Compatibility {
         $current  = $this->read();
         $base     = $this->without_managed_rule( $current );
         $desired  = array_merge( $base, [ $this->managed_rule() ] );
+        $paths = call_user_func( $this->private_paths );
+        $pattern = External_Response_Guard::path_pattern( is_array( $paths ) ? $paths : [] );
+        if ( '' !== $pattern ) {
+            $desired[] = [ 'type' => 'page', 'prefix' => 'regex', 'content' => '(?:' . $pattern . ')(?:' . self::PRIVATE_MARKER . '){0}' ];
+        }
         $previous = self::current();
         $hash     = hash( 'sha256', wp_json_encode( [ self::REQUEST_POLICY_VERSION, $desired ] ) );
         $changed  = $current !== $desired;
@@ -114,6 +149,9 @@ final class WP_Fastest_Cache_Compatibility {
 
     /** @return array */
     public function deactivate() {
+        $this->response_guard->unregister();
+        remove_filter( 'wpfc_buffer_callback_filter', [ $this, 'filter_buffer' ], PHP_INT_MAX );
+        $this->registered = false;
         if ( empty( self::current() ) ) {
             return [ 'success' => true, 'code' => 'configuration_absent' ];
         }
@@ -192,7 +230,13 @@ final class WP_Fastest_Cache_Compatibility {
             array_filter(
                 $rules,
                 static function ( $rule ) {
-                    return ! is_array( $rule ) || empty( $rule['content'] ) || false === strpos( (string) $rule['content'], self::MANAGED_MARKER );
+                    if ( ! is_array( $rule ) || empty( $rule['content'] ) || ! isset( $rule['type'], $rule['prefix'] ) || 'regex' !== $rule['prefix'] ) {
+                        return true;
+                    }
+                    $marker = 'cookie' === $rule['type'] ? self::MANAGED_MARKER : ( 'page' === $rule['type'] ? self::PRIVATE_MARKER : '' );
+                    $suffix = '(?:' . $marker . '){0}';
+
+                    return '' === $marker || $suffix !== substr( (string) $rule['content'], -strlen( $suffix ) );
                 }
             )
         );

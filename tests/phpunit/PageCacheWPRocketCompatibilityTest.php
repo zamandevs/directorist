@@ -217,6 +217,23 @@ class Directorist_Page_Cache_WP_Rocket_Compatibility_Test extends WP_UnitTestCas
         $this->assertSame( [], WP_Rocket_Compatibility::current() );
     }
 
+    /**
+     * @runInSeparateProcess
+     * @preserveGlobalState disabled
+     */
+    public function test_cleanup_can_purge_an_inactive_engine_without_selecting_it_for_delivery() {
+        eval( 'function rocket_clean_domain() { $GLOBALS["directorist_test_rocket_purges"]++; }' );
+        $GLOBALS['directorist_test_rocket_purges'] = 0;
+        $provider = new \Directorist\Cache\WP_Rocket_Provider();
+        $this->assertFalse( $provider->is_available() );
+        update_option( WP_Rocket_Compatibility::OPTION_NAME, [ 'applied_hash' => 'old-policy' ] );
+        $compat = new WP_Rocket_Compatibility( [ 'refresh_config' => '__return_true' ] );
+        $this->assertSame( 'configuration_removed', $compat->deactivate()['code'] );
+        $this->assertSame( 1, $GLOBALS['directorist_test_rocket_purges'] );
+        $this->assertSame( [], WP_Rocket_Compatibility::current() );
+        $this->assertFalse( ( new \Directorist\Cache\WP_Rocket_Provider() )->is_available() );
+    }
+
     private function compatibility( Cache_Provider $provider, &$refresh, $refresh_success = true, &$refresh_modes = null, &$configuration_current = null ) {
         return new WP_Rocket_Compatibility(
             [
