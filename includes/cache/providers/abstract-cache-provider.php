@@ -242,6 +242,36 @@ abstract class Abstract_Cache_Provider implements Cache_Provider {
             return $this->result( false, 'provider_operation_failed', [ 'operation' => $operation ] );
         }
 
+        if ( 'warm_urls' === $operation && is_array( $operation_result ) ) {
+            $success = ! empty( $operation_result['success'] );
+            $structured = array_key_exists( 'queued', $operation_result ) || array_key_exists( 'accepted_urls', $operation_result );
+            $code = ( ! $success || $structured ) && isset( $operation_result['code'] ) && is_string( $operation_result['code'] )
+                ? sanitize_key( $operation_result['code'] )
+                : ( $success ? $success_code : 'provider_operation_failed' );
+            $extra = [ 'operation' => $operation ];
+
+            if ( $structured ) {
+                $submitted = $arguments[0];
+                $has_urls = array_key_exists( 'accepted_urls', $operation_result );
+                $accepted = $has_urls && is_array( $operation_result['accepted_urls'] )
+                    ? array_values( array_unique( array_map( 'esc_url_raw', array_filter( $operation_result['accepted_urls'], 'is_string' ) ) ) )
+                    : [];
+                $queued = $operation_result['queued'] ?? count( $accepted );
+
+                if ( ! is_numeric( $queued ) || (int) $queued != $queued || $queued < 0 || $queued > count( $submitted ) ||
+                    ( $has_urls && ( ! is_array( $operation_result['accepted_urls'] ) || array_diff( $accepted, $submitted ) || count( $accepted ) !== (int) $queued ) ) ||
+                    ( ! $has_urls && 0 < $queued && count( $submitted ) !== (int) $queued )
+                ) {
+                    return $this->result( false, 'invalid_warm_result', [ 'operation' => $operation, 'queued' => 0, 'accepted_urls' => [] ] );
+                }
+
+                $extra['queued'] = (int) $queued;
+                $extra['accepted_urls'] = $has_urls ? $accepted : array_slice( $submitted, 0, (int) $queued );
+            }
+
+            return $this->result( $success, $code, $extra );
+        }
+
         return $this->result( true, $success_code, [ 'operation' => $operation ] );
     }
 

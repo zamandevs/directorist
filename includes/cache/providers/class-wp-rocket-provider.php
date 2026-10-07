@@ -20,12 +20,14 @@ final class WP_Rocket_Provider extends Abstract_Cache_Provider {
                 } : null,
                 'version'     => defined( 'WP_ROCKET_VERSION' ) ? WP_ROCKET_VERSION : '',
                 'enabled'     => function_exists( 'rocket_valid_key' ) && rocket_valid_key() && defined( 'WP_CACHE' ) && WP_CACHE,
+                'warm_urls'   => function_exists( 'directorist_page_cache_queue_warm_urls' ) ? 'directorist_page_cache_queue_warm_urls' : null,
             ];
         }
 
         $operations = [
             'delete_urls' => isset( $runtime['delete_urls'] ) ? $runtime['delete_urls'] : null,
             'purge_site'  => isset( $runtime['purge_site'] ) ? $runtime['purge_site'] : null,
+            'warm_urls'   => isset( $runtime['warm_urls'] ) ? $runtime['warm_urls'] : null,
         ];
 
         $enabled = ! array_key_exists( 'enabled', $runtime ) || ! empty( $runtime['enabled'] );

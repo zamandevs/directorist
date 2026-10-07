@@ -15,6 +15,7 @@ final class LiteSpeed_Cache_Provider extends Abstract_Cache_Provider {
                 'server_type' => defined( 'LITESPEED_SERVER_TYPE' ) ? LITESPEED_SERVER_TYPE : '',
                 'cache_on'    => defined( 'LITESPEED_ON' ) && LITESPEED_ON,
                 'version'     => defined( 'LSCWP_V' ) ? LSCWP_V : '',
+                'warm_urls'   => function_exists( 'directorist_page_cache_queue_warm_urls' ) ? 'directorist_page_cache_queue_warm_urls' : null,
             ];
         }
 
@@ -36,6 +37,7 @@ final class LiteSpeed_Cache_Provider extends Abstract_Cache_Provider {
                 : ( $server && has_action( 'litespeed_purge_all' ) ? static function () {
                     do_action( 'litespeed_purge_all' );
                 } : null ),
+            'warm_urls' => isset( $runtime['warm_urls'] ) ? $runtime['warm_urls'] : null,
         ];
 
         $this->configure( 'litespeed-cache', isset( $runtime['version'] ) ? $runtime['version'] : '', $operations, $server && empty( $runtime['disabled'] ) );

@@ -21,12 +21,14 @@ final class Cache_Enabler_Provider extends Abstract_Cache_Provider {
                 } : null,
                 'version'    => defined( 'CACHE_ENABLER_VERSION' ) ? CACHE_ENABLER_VERSION : '',
                 'enabled'    => $enabled,
+                'warm_urls'  => function_exists( 'directorist_page_cache_queue_warm_urls' ) ? 'directorist_page_cache_queue_warm_urls' : null,
             ];
         }
 
         $operations = [
             'delete_url' => isset( $runtime['delete_url'] ) ? $runtime['delete_url'] : null,
             'purge_site' => isset( $runtime['purge_site'] ) ? $runtime['purge_site'] : null,
+            'warm_urls'  => isset( $runtime['warm_urls'] ) ? $runtime['warm_urls'] : null,
         ];
 
         $available = empty( $runtime['disabled'] ) && ( ! isset( $runtime['enabled'] ) || $runtime['enabled'] );
