@@ -26,6 +26,7 @@ use Directorist\Setup\Activation;
 final class Directorist_Base {
     private static $lazy_legacy_class_files = [
         'ATBDP_SEO' => 'class-seo.php',
+        'ATBDP_Settings_Panel' => 'class-settings-panel.php',
     ];
 
     private static $legacy_service_autoloader_registered = false;
@@ -182,7 +183,7 @@ final class Directorist_Base {
 
     public $multi_directory_manager;
 
-    public $settings_panel;
+    protected $settings_panel;
 
     public $hooks;
 
@@ -227,13 +228,15 @@ final class Directorist_Base {
 
             self::$instance->includes();
 
-            $request = Directorist\Request_Context::current();
+            $request         = Directorist\Request_Context::current();
+            $is_admin_screen = $request->is_admin_screen();
+            $ajax_action     = $request->ajax_action();
             Directorist\Directorist_Template_Hooks::register_dashboard_ajax( $request );
 
-            if ( $request->is_admin_screen() ) {
+            if ( $is_admin_screen ) {
                 new Directorist\AdminMenu();
             }
-            if ( $request->is_admin_screen() || Directorist_Setup_Wizard::handles_ajax_action( $request->ajax_action() ) ) {
+            if ( $is_admin_screen || Directorist_Setup_Wizard::handles_ajax_action( $ajax_action ) ) {
                 new Directorist_Setup_Wizard();
             }
             new Directorist\FeaturedListingCheckout();
@@ -263,15 +266,22 @@ final class Directorist_Base {
             self::$instance->multi_directory_manager = new Directorist\Multi_Directory\Multi_Directory_Manager();
             self::$instance->multi_directory_manager->run();
 
-            self::$instance->settings_panel = new ATBDP_Settings_Panel();
-            self::$instance->settings_panel->run();
+            $load_settings_panel = $is_admin_screen || 'save_settings_data' === $ajax_action;
+            $load_settings_panel = (bool) apply_filters( 'directorist_load_settings_panel', $load_settings_panel, $ajax_action );
+
+            if ( ! apply_filters( 'directorist_defer_settings_panel', true ) || $load_settings_panel ) {
+                self::$instance->settings_panel = new ATBDP_Settings_Panel();
+                self::$instance->settings_panel->run();
+            } else {
+                self::register_settings_lifecycle_hooks();
+            }
 
             self::$instance->hooks = new ATBDP_Hooks();
-            if ( $request->is_admin_screen() || ATBDP_Metabox::handles_ajax_action( $request->ajax_action() ) ) {
+            if ( $is_admin_screen || ATBDP_Metabox::handles_ajax_action( $ajax_action ) ) {
                 self::$instance->metabox = new ATBDP_Metabox();
             }
             if ( ATBDP_Ajax_Handler::should_boot( $request ) ) {
-                self::$instance->ajax_handler = new ATBDP_Ajax_Handler( $request->ajax_action() );
+                self::$instance->ajax_handler = new ATBDP_Ajax_Handler( $ajax_action );
             }
             self::$instance->helper = new ATBDP_Helper();
             self::$instance->listing = new ATBDP_Listing();
@@ -580,6 +590,20 @@ final class Directorist_Base {
         }
     }
 
+    private static function register_settings_lifecycle_hooks() {
+        add_action( 'directorist_installed', [ __CLASS__, 'update_settings_init_options' ] );
+        add_action( 'directorist_updated', [ __CLASS__, 'update_settings_init_options' ] );
+    }
+
+    private static function unregister_settings_lifecycle_hooks() {
+        remove_action( 'directorist_installed', [ __CLASS__, 'update_settings_init_options' ] );
+        remove_action( 'directorist_updated', [ __CLASS__, 'update_settings_init_options' ] );
+    }
+
+    public static function update_settings_init_options() {
+        update_directorist_option( 'lazy_load_taxonomy_fields', directorist_has_no_listing() );
+    }
+
     public static function prepare_plugin( $network_wide = false ) {
         include ATBDP_INC_DIR . 'classes/class-installation.php';
         ATBDP_Installation::install();
@@ -665,7 +689,7 @@ final class Directorist_Base {
     }
 
     private function get_lazy_service_names() {
-        return [ 'ajax_handler', 'background_image_process', 'formgent', 'gateway', 'hooks', 'insights', 'metabox', 'review', 'seo', 'tools' ];
+        return [ 'ajax_handler', 'background_image_process', 'formgent', 'gateway', 'hooks', 'insights', 'metabox', 'review', 'seo', 'settings_panel', 'tools' ];
     }
 
     private function get_lazy_service( $name ) {
@@ -701,6 +725,11 @@ final class Directorist_Base {
                 break;
             case 'seo':
                 $this->seo = new ATBDP_SEO();
+                break;
+            case 'settings_panel':
+                self::unregister_settings_lifecycle_hooks();
+                $this->settings_panel = new ATBDP_Settings_Panel();
+                $this->settings_panel->run();
                 break;
             case 'tools':
                 $this->tools = new ATBDP_Tools();
