@@ -14,21 +14,46 @@ if ( ! defined( 'ABSPATH' ) ) {
 use Directorist\Helper;
 
 class Bootstrap {
+    private static $autoload_files = [
+        'Directorist\\Review\\Builder'                => 'class-builder.php',
+        'Directorist\\Review\\Comment_Form_Processor' => 'class-comment-form-processor.php',
+        'Directorist\\Review\\Comment_Form_Renderer'  => 'class-comment-form-renderer.php',
+        'Directorist\\Review\\Comment_Meta'           => 'class-comment-meta.php',
+        'Directorist\\Review\\Listing_Review_Meta'    => 'class-listing-review-meta.php',
+        'Directorist\\Review\\Markup'                 => 'class-markup.php',
+    ];
+
+    private static $autoload_registered = false;
+
     public static function init() {
+        self::register_autoloader();
         self::include_files();
         self::setup_hooks();
+    }
+
+    public static function register_autoloader() {
+        if ( self::$autoload_registered ) {
+            return;
+        }
+
+        spl_autoload_register( [ __CLASS__, 'autoload' ] );
+        self::$autoload_registered = true;
+    }
+
+    public static function autoload( $class_name ) {
+        $class_name = ltrim( $class_name, '\\' );
+
+        if ( ! isset( self::$autoload_files[ $class_name ] ) ) {
+            return;
+        }
+
+        require_once __DIR__ . '/' . self::$autoload_files[ $class_name ];
     }
 
     public static function include_files() {
         require_once 'directorist-review-functions.php';
         require_once 'class-email.php';
-        require_once 'class-markup.php';
-        require_once 'class-builder.php';
         require_once 'class-comment.php';
-        require_once 'class-comment-meta.php';
-        require_once 'class-listing-review-meta.php';
-        require_once 'class-comment-form-renderer.php';
-        require_once 'class-comment-form-processor.php';
 
         if ( is_admin() ) {
             require_once 'class-admin.php';
@@ -38,6 +63,10 @@ class Bootstrap {
     }
 
     public static function setup_hooks() {
+        add_action( 'wp_ajax_directorist_get_comment_edit_form', [ 'Directorist\\Review\\Comment_Form_Renderer', 'render' ] );
+        add_action( 'wp_ajax_nopriv_directorist_get_comment_edit_form', [ 'Directorist\\Review\\Comment_Form_Renderer', 'render' ] );
+        add_action( 'wp_ajax_directorist_process_comment_form', [ 'Directorist\\Review\\Comment_Form_Processor', 'process' ] );
+        add_action( 'wp_ajax_nopriv_directorist_process_comment_form', [ 'Directorist\\Review\\Comment_Form_Processor', 'process' ] );
         add_action( 'wp_error_added', [ __CLASS__, 'update_error_message' ], 10, 4 );
         add_action( 'pre_get_posts', [ __CLASS__, 'override_comments_pagination' ] );
         add_filter( 'comments_template', [ __CLASS__, 'load_comments_template' ], 9999 );
