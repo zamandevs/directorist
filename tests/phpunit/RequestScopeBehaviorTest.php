@@ -61,6 +61,7 @@ class Directorist_Request_Scope_Behavior_Test extends WP_UnitTestCase {
             'directorist_send_confirmation_email',
             'directorist_zipcode_search',
             'directorist_generate_nonce',
+            'directorist_cache_interaction_tokens',
             'directorist_taxonomy_pagination',
             'directorist_update_view_count',
             'atbdp_reject_listing',
@@ -68,7 +69,7 @@ class Directorist_Request_Scope_Behavior_Test extends WP_UnitTestCase {
 
         $this->assertSame( $expected_actions, array_keys( $actions ) );
         $this->assertSame(
-            61,
+            63,
             array_sum(
                 array_map(
                     static function ( $definition ) {

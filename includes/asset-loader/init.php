@@ -31,6 +31,8 @@ class Asset_Loader {
         add_action( 'wp_enqueue_scripts', [ __CLASS__, 'enqueue_styles' ], 12 );
         add_action( 'wp_enqueue_scripts', [ __CLASS__, 'enqueue_single_listing_scripts' ], 12 );
         add_action( 'wp_enqueue_scripts', [ __CLASS__, 'localized_data' ], 15 );
+        add_action( 'wp_print_scripts', [ __CLASS__, 'localized_data' ], 0 );
+        add_action( 'wp_print_footer_scripts', [ __CLASS__, 'localized_data' ], 0 );
 
         add_action( 'enqueue_block_assets', [ __CLASS__, 'register_scripts' ] );
         add_action( 'enqueue_block_assets', [ __CLASS__, 'localized_data' ], 15 );

@@ -778,6 +778,21 @@ function directorist_require_asset( $assets, $reason = 'integration-render', $co
 }
 
 /**
+ * Request one or more Directorist frontend localized-data modules.
+ *
+ * Updated integrations should call this before their owning script is printed.
+ * Older cores safely ignore the call when guarded with function_exists().
+ *
+ * @param string|array $modules Module identifier or identifiers.
+ * @param string       $handle  Preferred owning script handle.
+ *
+ * @return void
+ */
+function directorist_require_localized_data( $modules, $handle = 'jquery' ) {
+    \Directorist\Asset_Loader\Localized_Data::ensure_modules( $modules, $handle );
+}
+
+/**
  * Enqueue one or more registered styles from a renderer-level integration.
  * Styles first requested after wp_head are flushed before footer scripts.
  *
@@ -3460,6 +3475,32 @@ function directorist_get_registration_error_message( $error_code ) {
  */
 function directorist_get_nonce_key() {
     return 'directorist_nonce_' . ATBDP_VERSION;
+}
+
+/** Current-session tokens are fetched separately from public cached HTML. */
+function directorist_get_cache_interaction_tokens() {
+    return [
+        'nonce'            => wp_create_nonce( 'atbdp_nonce_action_js' ),
+        'directorist_nonce' => wp_create_nonce( directorist_get_nonce_key() ),
+        'ajax_nonce'       => wp_create_nonce( 'bdas_ajax_nonce' ),
+        'ajaxnonce'        => wp_create_nonce( 'bdas_ajax_nonce' ),
+        'rest_nonce'       => wp_create_nonce( 'wp_rest' ),
+        'login_nonce'      => wp_create_nonce( 'ajax-login-nonce' ),
+        'quick_login_nonce' => wp_create_nonce( 'directorist-quick-login-nonce' ),
+        'author_sort_nonce' => wp_create_nonce( 'directorist_author_sorting' ),
+        'comment_edit_nonce' => wp_create_nonce( 'directorist_get_comment_edit_form' ),
+        'comment_nonce'    => wp_create_nonce( 'directorist_process_comment_form' ),
+        'email_nonce'      => wp_create_nonce( 'directorist_nonce' ),
+    ];
+}
+
+/** @return array Public endpoint configuration, not personalized token values. */
+function directorist_get_cache_interaction_config() {
+    return [
+        'enabled' => ! is_admin() && function_exists( 'directorist_page_cache_is_enabled' ) && directorist_page_cache_is_enabled(),
+        'url'     => admin_url( 'admin-ajax.php' ),
+        'action'  => 'directorist_cache_interaction_tokens',
+    ];
 }
 
 /**

@@ -61,6 +61,7 @@ module.exports = {
 		'js/admin/settings-manager': './assets/src/js/admin/settings-manager.js',
 
 		// Global JS
+		'js/global/cache-interactions': './assets/src/js/global/cache-interactions.js',
 		'js/global/main': './assets/src/js/global/global.js',
 		'js/global/add-listing': './assets/src/js/global/add-listing.js',
 		'js/global/geolocation': './assets/src/js/global/map-scripts/geolocation.js',
