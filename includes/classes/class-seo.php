@@ -11,14 +11,20 @@ if ( ! class_exists( 'ATBDP_SEO' ) ) :
 
         private $taxonomy_terms = [];
 
-        public function __construct() {
-            $is_enabled_seo = ! empty( get_directorist_option( 'atbdp_enable_seo' ) );
+        public function __construct( $is_enabled_seo = null ) {
+            if ( null === $is_enabled_seo ) {
+                $is_enabled_seo = ! empty( get_directorist_option( 'atbdp_enable_seo' ) );
+            }
 
             if ( ! $is_enabled_seo ) {
                 return;
             }
 
             add_action( 'init', [ $this, 'setup_seo' ] );
+
+            if ( did_action( 'init' ) ) {
+                $this->setup_seo();
+            }
         }
 
         /**
