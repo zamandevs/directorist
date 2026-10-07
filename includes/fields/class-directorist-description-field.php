@@ -21,4 +21,4 @@ class Description_Field extends Textarea_Field {
     }
 }
 
-Fields::register( new Description_Field() );
+Fields::register_class( 'description', Description_Field::class );

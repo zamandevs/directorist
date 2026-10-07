@@ -17,4 +17,4 @@ class Text_Field extends Base_Field {
     }
 }
 
-Fields::register( new Text_Field() );
+Fields::register_class( 'text', Text_Field::class );

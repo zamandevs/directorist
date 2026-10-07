@@ -44,16 +44,58 @@ if ( ! class_exists( 'ATBDP_Tools' ) ) :
          */
         private $importer = null;
 
-        public function __construct() {
+        /**
+         * AJAX action selected for isolated registration.
+         *
+         * @var string
+         */
+        private $ajax_action = '';
+
+        /**
+         * Return AJAX actions owned by the tools service.
+         *
+         * @return array<string, string>
+         */
+        public static function get_ajax_actions() {
+            return [
+                'directorist_import_listings'                              => 'handle_import_listings',
+                'directorist_update_csv_columns_to_listing_fields_table'   => 'update_csv_columns_to_listing_fields_table',
+            ];
+        }
+
+        /**
+         * Whether the tools service handles an AJAX action.
+         *
+         * @param string $action AJAX action.
+         * @return bool
+         */
+        public static function handles_ajax_action( $action ) {
+            return isset( self::get_ajax_actions()[ $action ] );
+        }
+
+        /**
+         * Initialize the tools service.
+         *
+         * @param string $ajax_action Optional action to register in isolation.
+         */
+        public function __construct( $ajax_action = '' ) {
             // Prevent frontend executions.
             if ( ! is_admin() ) {
                 return;
             }
 
+            $this->ajax_action = sanitize_key( $ajax_action );
+
             add_action( 'admin_menu', [ $this, 'add_admin_menu' ] );
             add_action( 'admin_init', [ $this, 'handle_csv_upload' ] );
-            add_action( 'wp_ajax_directorist_import_listings', [ $this, 'handle_import_listings' ] );
-            add_action( 'wp_ajax_directorist_update_csv_columns_to_listing_fields_table', [ $this, 'update_csv_columns_to_listing_fields_table' ] );
+
+            foreach ( self::get_ajax_actions() as $action => $callback ) {
+                if ( $this->ajax_action && $this->ajax_action !== $action ) {
+                    continue;
+                }
+
+                add_action( 'wp_ajax_' . $action, [ $this, $callback ] );
+            }
 
             add_action(
                 'admin_head', function() {

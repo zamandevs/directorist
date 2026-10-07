@@ -21,4 +21,4 @@ class Categories_Field extends Taxonomy_Field {
     }
 }
 
-Fields::register( new Categories_Field() );
+Fields::register_class( 'categories', Categories_Field::class );

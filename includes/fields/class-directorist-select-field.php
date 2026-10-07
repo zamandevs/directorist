@@ -43,4 +43,4 @@ class Select_Field extends Base_Field {
     }
 }
 
-Fields::register( new Select_Field() );
+Fields::register_class( 'select', Select_Field::class );

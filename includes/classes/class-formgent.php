@@ -11,6 +11,20 @@ if ( ! class_exists( 'ATBDP_Formgent' ) ) {
     class ATBDP_Formgent
     {
         protected static $hooks_registered = false;
+
+        protected static $instance = null;
+
+        public static function maybe_init() {
+            if ( self::$instance || ! function_exists( 'formgent_response_repository' ) ) {
+                return self::$instance;
+            }
+
+            self::$instance = new self();
+            directorist()->formgent = self::$instance;
+
+            return self::$instance;
+        }
+
         public function __construct() {
             if ( self::$hooks_registered ) {
                 return;

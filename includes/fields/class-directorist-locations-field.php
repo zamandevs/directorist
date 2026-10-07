@@ -21,4 +21,4 @@ class Locations_Field extends Taxonomy_Field {
     }
 }
 
-Fields::register( new Locations_Field() );
+Fields::register_class( 'locations', Locations_Field::class );

@@ -42,4 +42,4 @@ class Checkbox_Field extends Base_Field {
     }
 }
 
-Fields::register( new Checkbox_Field() );
+Fields::register_class( 'checkbox', Checkbox_Field::class );

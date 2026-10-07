@@ -38,4 +38,4 @@ class Number_Field extends Base_Field {
     }
 }
 
-Fields::register( new Number_Field() );
+Fields::register_class( 'number', Number_Field::class );

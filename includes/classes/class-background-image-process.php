@@ -20,6 +20,26 @@ if ( ! class_exists( __NAMESPACE__ . '\Background_Process', false ) ) {
  */
 class Background_Image_Process extends Background_Process {
     /**
+     * Return the WordPress AJAX action used by this process.
+     *
+     * @return string
+     */
+    public static function get_ajax_action() {
+        return 'wp_' . get_current_blog_id() . '_directorist_background_image_process';
+    }
+
+    /**
+     * Whether this process is required for a request.
+     *
+     * @param Request_Context $request Request context.
+     * @return bool
+     */
+    public static function should_boot( Request_Context $request ) {
+        return $request->is_cron()
+            || ( $request->is_ajax() && self::get_ajax_action() === $request->ajax_action() );
+    }
+
+    /**
      * Initiate new background process.
      */
     public function __construct() {

@@ -34,4 +34,4 @@ class Url_Field extends Base_Field {
     }
 }
 
-Fields::register( new Url_Field() );
+Fields::register_class( 'url', Url_Field::class );

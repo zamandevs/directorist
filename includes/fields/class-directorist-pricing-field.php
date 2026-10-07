@@ -68,4 +68,4 @@ class Pricing_Field extends Base_Field {
     }
 }
 
-Fields::register( new Pricing_Field() );
+Fields::register_class( 'pricing', Pricing_Field::class );

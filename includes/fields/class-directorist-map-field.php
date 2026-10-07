@@ -25,4 +25,4 @@ class Map_Field extends Base_Field {
     }
 }
 
-Fields::register( new Map_Field() );
+Fields::register_class( 'map', Map_Field::class );

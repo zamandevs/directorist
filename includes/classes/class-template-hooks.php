@@ -8,17 +8,17 @@ namespace Directorist;
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 class Directorist_Template_Hooks {
+    const DASHBOARD_AJAX_ACTION = 'directorist_dashboard_listing_tab';
+
     protected static $instance = null;
+
+    protected static $dashboard_ajax_registered = false;
 
     private function __construct() {
 
         // Allow Directorist icon/badge inline vars in wp_kses_post.
         add_filter( 'safe_style_css', [ $this, 'add_style_attr' ] );
         add_filter( 'safecss_filter_attr_allow_css', [ $this, 'allow_style_attr' ], 10, 2 );
-
-        // Dashboard ajax
-        $dashboard = Directorist_Listing_Dashboard::instance();
-        add_action( 'wp_ajax_directorist_dashboard_listing_tab', [ $dashboard, 'ajax_listing_tab' ] );
 
         // All Categories
         add_action( 'atbdp_before_all_categories_loop',    [ '\Directorist\Directorist_Listing_Taxonomy', 'archive_type' ] );
@@ -59,6 +59,23 @@ class Directorist_Template_Hooks {
             self::$instance = new self;
         }
         return self::$instance;
+    }
+
+    public static function handles_dashboard_ajax_action( $action ) {
+        return self::DASHBOARD_AJAX_ACTION === $action;
+    }
+
+    public static function register_dashboard_ajax( Request_Context $request ) {
+        if ( self::$dashboard_ajax_registered
+            || ! $request->is_ajax()
+            || ! self::handles_dashboard_ajax_action( $request->ajax_action() )
+        ) {
+            return;
+        }
+
+        self::$dashboard_ajax_registered = true;
+        $dashboard = Directorist_Listing_Dashboard::instance();
+        add_action( 'wp_ajax_' . self::DASHBOARD_AJAX_ACTION, [ $dashboard, 'ajax_listing_tab' ] );
     }
 
     public function add_style_attr( $args ) {

@@ -17,4 +17,4 @@ class Switch_Field extends Base_Field {
     }
 }
 
-Fields::register( new Switch_Field() );
+Fields::register_class( 'switch', Switch_Field::class );

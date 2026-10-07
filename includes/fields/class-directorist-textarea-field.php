@@ -30,4 +30,4 @@ class Textarea_Field extends Base_Field {
     }
 }
 
-Fields::register( new Textarea_Field() );
+Fields::register_class( 'textarea', Textarea_Field::class );

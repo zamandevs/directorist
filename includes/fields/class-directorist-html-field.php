@@ -63,4 +63,4 @@ class HTML_Field extends Textarea_Field {
     }
 }
 
-Fields::register( new HTML_Field() );
+Fields::register_class( 'html', HTML_Field::class );

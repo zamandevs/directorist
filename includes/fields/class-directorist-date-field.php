@@ -29,4 +29,4 @@ class Date_Field extends Base_Field {
     }
 }
 
-Fields::register( new Date_Field() );
+Fields::register_class( 'date', Date_Field::class );

@@ -57,4 +57,4 @@ class Social_Info_Field extends Base_Field {
     }
 }
 
-Fields::register( new Social_Info_Field() );
+Fields::register_class( 'social_info', Social_Info_Field::class );

@@ -25,4 +25,4 @@ class Time_Field extends Base_Field {
     }
 }
 
-Fields::register( new Time_Field() );
+Fields::register_class( 'time', Time_Field::class );

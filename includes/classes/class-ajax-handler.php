@@ -15,127 +15,102 @@ if ( ! class_exists( 'ATBDP_Ajax_Handler' ) ) :
      */
     class ATBDP_Ajax_Handler {
         /**
-         * It registers our ajax functions to our ajax hooks
+         * Return the AJAX actions owned by this handler.
+         *
+         * @return array<string, array<string, mixed>>
          */
-        public function __construct() {
-            add_action( 'wp_ajax_atbdp_social_info_handler', [ $this, 'atbdp_social_info_handler' ] );
-            add_action( 'wp_ajax_nopriv_atbdp_social_info_handler', [ $this, 'atbdp_social_info_handler' ] );
+        public static function get_ajax_actions() {
+            return [
+                'atbdp_social_info_handler'             => [ 'callback' => 'atbdp_social_info_handler', 'public' => true ],
+                'remove_listing'                        => [ 'callback' => 'remove_listing' ],
+                'update_user_profile'                   => [ 'callback' => 'update_user_profile' ],
+                'update_user_preferences'               => [ 'callback' => 'update_user_preferences' ],
+                'atbdp_format_total_amount'             => [ 'callback' => [ 'ATBDP_Checkout', 'ajax_atbdp_format_total_amount' ], 'public' => true ],
+                'atbdp_public_report_abuse'             => [ 'callback' => 'ajax_callback_report_abuse', 'public' => true ],
+                'atbdp_public_send_contact_email'       => [ 'callback' => 'ajax_callback_send_contact_email', 'public' => true ],
+                'atbdp_public_add_remove_favorites'     => [ 'callback' => 'atbdp_public_add_remove_favorites', 'public' => true ],
+                'bdas_public_dropdown_terms'            => [ 'callback' => 'bdas_dropdown_terms', 'public' => true ],
+                'atbdp_custom_fields_search'            => [ 'callback' => 'custom_field_search', 'public' => true ],
+                'atbdp-favourites-all-listing'          => [ 'callback' => 'atbdp_public_add_remove_favorites_all', 'public' => true ],
+                'atbdp_post_attachment_upload'          => [ 'callback' => 'atbdp_post_attachment_upload', 'public' => true ],
+                'ajaxlogin'                             => [ 'callback' => 'atbdp_ajax_login', 'public' => true ],
+                'atbdp_ajax_quick_login'                => [ 'callback' => 'atbdp_quick_ajax_login', 'public' => true ],
+                'atbdp_upgrade_old_pages'               => [ 'callback' => 'upgrade_old_pages' ],
+                'atbdp_listing_default_type'            => [ 'callback' => 'atbdp_listing_default_type' ],
+                'directorist_type_slug_change'          => [ 'callback' => 'directorist_type_slug_change' ],
+                'atbdp_guest_reception'                 => [ 'callback' => 'guest_reception', 'public' => true ],
+                'directorist_load_category_custom_fields' => [ 'callback' => 'ajax_callback_custom_fields', 'public' => true, 'accepted_args' => 2 ],
+                'atbdp_listing_types_form'              => [ 'callback' => 'atbdp_listing_types_form', 'public' => true ],
+                'directorist_category_custom_field_search' => [ 'callback' => 'category_custom_field_search', 'public' => true ],
+                'directorist_get_category_options'      => [ 'callback' => 'ajax_get_category_options' ],
+                'directorist_get_tag_options'           => [ 'callback' => 'ajax_get_tag_options' ],
+                'directorist_get_location_options'      => [ 'callback' => 'ajax_get_location_options' ],
+                'atbdp_become_author'                   => [ 'callback' => 'atbdp_become_author' ],
+                'atbdp_user_type_approved'              => [ 'callback' => 'atbdp_user_type_approved' ],
+                'atbdp_user_type_deny'                  => [ 'callback' => 'atbdp_user_type_deny' ],
+                'directorist_prepare_listings_export_file' => [ 'callback' => 'handle_prepare_listings_export_file_request' ],
+                'directorist_ajax_quick_login'          => [ 'callback' => 'directorist_quick_ajax_login', 'public' => true ],
+                'directorist_author_alpha_sorting'      => [ 'callback' => 'directorist_author_alpha_sorting', 'public' => true ],
+                'directorist_author_pagination'         => [ 'callback' => 'author_pagination', 'public' => true ],
+                'directorist_instant_search'            => [ 'callback' => 'instant_search', 'public' => true ],
+                'directorist_send_confirmation_email'   => [ 'callback' => 'send_confirm_email', 'public' => true ],
+                'directorist_zipcode_search'            => [ 'callback' => 'zipcode_search', 'public' => true ],
+                'directorist_generate_nonce'            => [ 'callback' => 'handle_generate_nonce' ],
+                'directorist_taxonomy_pagination'       => [ 'callback' => 'directorist_taxonomy_pagination', 'public' => true ],
+                'directorist_update_view_count'         => [ 'callback' => [ static::class, 'update_view_count' ], 'public' => true ],
+                'atbdp_reject_listing'                  => [ 'callback' => 'reject_listing' ],
+            ];
+        }
 
-            add_action( 'wp_ajax_remove_listing', [ $this, 'remove_listing' ] ); // delete a listing
-            add_action( 'wp_ajax_update_user_profile', [ $this, 'update_user_profile' ] );
-            add_action( 'wp_ajax_update_user_preferences', [ $this, 'update_user_preferences' ] );
+        /**
+         * Whether this handler owns an AJAX action.
+         *
+         * @param string $action AJAX action.
+         * @return bool
+         */
+        public static function handles_ajax_action( $action ) {
+            return isset( static::get_ajax_actions()[ $action ] );
+        }
 
-            /*CHECKOUT RELATED STUFF*/
-            add_action( 'wp_ajax_atbdp_format_total_amount', [ 'ATBDP_Checkout', 'ajax_atbdp_format_total_amount' ] );
-            add_action( 'wp_ajax_nopriv_atbdp_format_total_amount', [ 'ATBDP_Checkout', 'ajax_atbdp_format_total_amount' ] );
+        /**
+         * Whether this handler is required for a request.
+         *
+         * @param \Directorist\Request_Context $request Request context.
+         * @return bool
+         */
+        public static function should_boot( \Directorist\Request_Context $request ) {
+            return $request->is_ajax() && static::handles_ajax_action( $request->ajax_action() );
+        }
 
-            /*REPORT ABUSE*/
-            add_action( 'wp_ajax_atbdp_public_report_abuse', [ $this, 'ajax_callback_report_abuse' ] );
-            add_action( 'wp_ajax_nopriv_atbdp_public_report_abuse', [ $this, 'ajax_callback_report_abuse' ] );
+        /**
+         * Register the AJAX callbacks owned by this handler.
+         *
+         * @param string $ajax_action Optional action to register in isolation.
+         */
+        public function __construct( $ajax_action = '' ) {
+            $actions     = static::get_ajax_actions();
+            $ajax_action = sanitize_key( $ajax_action );
 
-            /*CONTACT FORM*/
-            add_action( 'wp_ajax_atbdp_public_send_contact_email', [ $this, 'ajax_callback_send_contact_email' ] );
-            add_action( 'wp_ajax_nopriv_atbdp_public_send_contact_email', [ $this, 'ajax_callback_send_contact_email' ] );
+            if ( $ajax_action ) {
+                $actions = isset( $actions[ $ajax_action ] )
+                    ? [ $ajax_action => $actions[ $ajax_action ] ]
+                    : [];
+            }
 
-            /*
-             * stuff for handling add to favourites
-             */
-            add_action( 'wp_ajax_atbdp_public_add_remove_favorites', [ $this, 'atbdp_public_add_remove_favorites' ] );
-            add_action( 'wp_ajax_nopriv_atbdp_public_add_remove_favorites', [ $this, 'atbdp_public_add_remove_favorites' ] );
+            foreach ( $actions as $action => $definition ) {
+                $callback      = $definition['callback'];
+                $accepted_args = isset( $definition['accepted_args'] ) ? $definition['accepted_args'] : 1;
 
-            // location & category child term
-            add_action( 'wp_ajax_bdas_public_dropdown_terms', [ $this, 'bdas_dropdown_terms' ] );
-            add_action( 'wp_ajax_nopriv_bdas_public_dropdown_terms', [ $this, 'bdas_dropdown_terms' ] );
-            // custom field search
-            add_action( 'wp_ajax_atbdp_custom_fields_search', [ $this, 'custom_field_search' ], 10, 1 );
-            add_action( 'wp_ajax_nopriv_atbdp_custom_fields_search', [ $this, 'custom_field_search' ], 10, 1 );
-            add_action( 'wp_ajax_atbdp-favourites-all-listing', [ $this, 'atbdp_public_add_remove_favorites_all' ] );
-            add_action( 'wp_ajax_nopriv_atbdp-favourites-all-listing', [ $this, 'atbdp_public_add_remove_favorites_all' ] );
-            add_action( 'wp_ajax_atbdp_post_attachment_upload', [ $this, 'atbdp_post_attachment_upload' ] );
-            add_action( 'wp_ajax_nopriv_atbdp_post_attachment_upload', [ $this, 'atbdp_post_attachment_upload' ] );
-            // login
-            add_action( 'wp_ajax_ajaxlogin', [ $this, 'atbdp_ajax_login' ] );
-            add_action( 'wp_ajax_nopriv_ajaxlogin', [ $this, 'atbdp_ajax_login' ] );
+                if ( is_string( $callback ) ) {
+                    $callback = [ $this, $callback ];
+                }
 
-            /**
-             * @todo need to remove code as it has no uses
-             */
-            add_action( 'wp_ajax_atbdp_ajax_quick_login', [ $this, 'atbdp_quick_ajax_login' ] );
-            add_action( 'wp_ajax_nopriv_atbdp_ajax_quick_login', [ $this, 'atbdp_quick_ajax_login' ] );
+                add_action( 'wp_ajax_' . $action, $callback, 10, $accepted_args );
 
-            // regenerate pages
-            add_action( 'wp_ajax_atbdp_upgrade_old_pages', [ $this, 'upgrade_old_pages' ] );
-            // default listing type
-            add_action( 'wp_ajax_atbdp_listing_default_type', [ $this, 'atbdp_listing_default_type' ] );
-            // listing type slug edit
-            add_action( 'wp_ajax_directorist_type_slug_change', [ $this, 'directorist_type_slug_change' ] );
-
-            // Guset Reception
-            add_action( 'wp_ajax_atbdp_guest_reception', [ $this, 'guest_reception' ] );
-            add_action( 'wp_ajax_nopriv_atbdp_guest_reception', [ $this, 'guest_reception' ] );
-
-            // custom field
-            // add_action( 'wp_ajax_atbdp_custom_fields_listings', array( $this, 'ajax_callback_custom_fields' ), 10, 2 );
-            // add_action( 'wp_ajax_nopriv_atbdp_custom_fields_listings', array( $this, 'ajax_callback_custom_fields' ), 10, 2 );
-
-            add_action( 'wp_ajax_directorist_load_category_custom_fields', [ $this, 'ajax_callback_custom_fields' ], 10, 2 );
-            add_action( 'wp_ajax_nopriv_directorist_load_category_custom_fields', [ $this, 'ajax_callback_custom_fields' ], 10, 2 );
-
-            // add_action('wp_ajax_atbdp_custom_fields_listings_front_selected',        array($this, 'ajax_callback_custom_fields'), 10, 2);
-            // add_action('wp_ajax_nopriv_atbdp_custom_fields_listings_front_selected', array($this, 'ajax_callback_custom_fields'), 10, 2);
-            // add_action('wp_ajax_atbdp_custom_fields_listings',                       array($this, 'ajax_callback_custom_fields'), 10, 2 );
-            // add_action('wp_ajax_atbdp_custom_fields_listings_selected',              array($this, 'ajax_callback_custom_fields'), 10, 2 );
-
-            add_action( 'wp_ajax_atbdp_listing_types_form', [ $this, 'atbdp_listing_types_form' ] );
-            add_action( 'wp_ajax_nopriv_atbdp_listing_types_form', [ $this, 'atbdp_listing_types_form' ] );
-
-            add_action( 'wp_ajax_directorist_category_custom_field_search', [ $this, 'category_custom_field_search' ] );
-            add_action( 'wp_ajax_nopriv_directorist_category_custom_field_search', [ $this, 'category_custom_field_search' ] );
-
-            // Get category options for conditional logic builder
-            add_action( 'wp_ajax_directorist_get_category_options', [ $this, 'ajax_get_category_options' ] );
-            add_action( 'wp_ajax_directorist_get_tag_options', [ $this, 'ajax_get_tag_options' ] );
-            add_action( 'wp_ajax_directorist_get_location_options', [ $this, 'ajax_get_location_options' ] );
-
-            // dashboard become author
-            add_action( 'wp_ajax_atbdp_become_author', [ $this, 'atbdp_become_author' ] );
-            add_action( 'wp_ajax_atbdp_user_type_approved', [ $this, 'atbdp_user_type_approved' ] );
-            add_action( 'wp_ajax_atbdp_user_type_deny', [ $this, 'atbdp_user_type_deny' ] );
-
-            add_action( 'wp_ajax_directorist_prepare_listings_export_file', [ $this, 'handle_prepare_listings_export_file_request' ] );
-
-            add_action( 'wp_ajax_directorist_ajax_quick_login', [ $this, 'directorist_quick_ajax_login' ] );
-            add_action( 'wp_ajax_nopriv_directorist_ajax_quick_login', [ $this, 'directorist_quick_ajax_login' ] );
-
-            // author sorting
-            add_action( 'wp_ajax_directorist_author_alpha_sorting', [ $this, 'directorist_author_alpha_sorting' ] );
-            add_action( 'wp_ajax_nopriv_directorist_author_alpha_sorting', [ $this, 'directorist_author_alpha_sorting' ] );
-
-            // author paginate
-            add_action( 'wp_ajax_directorist_author_pagination', [ $this, 'author_pagination' ] );
-            add_action( 'wp_ajax_nopriv_directorist_author_pagination', [ $this, 'author_pagination' ] );
-
-            // instant search
-            add_action( 'wp_ajax_directorist_instant_search', [ $this, 'instant_search' ] );
-            add_action( 'wp_ajax_nopriv_directorist_instant_search', [ $this, 'instant_search' ] );
-
-            // user verification
-            add_action( 'wp_ajax_directorist_send_confirmation_email', [$this, 'send_confirm_email'] );
-            add_action( 'wp_ajax_nopriv_directorist_send_confirmation_email', [$this, 'send_confirm_email'] );
-
-            // zipcode search
-            add_action( 'wp_ajax_directorist_zipcode_search', [ $this, 'zipcode_search' ] );
-            add_action( 'wp_ajax_nopriv_directorist_zipcode_search', [ $this, 'zipcode_search' ] );
-
-            add_action( 'wp_ajax_directorist_generate_nonce', [ $this, 'handle_generate_nonce' ] );
-
-            add_action( 'wp_ajax_directorist_taxonomy_pagination', [ $this, 'directorist_taxonomy_pagination' ] );
-            add_action( 'wp_ajax_nopriv_directorist_taxonomy_pagination', [ $this, 'directorist_taxonomy_pagination' ] );
-
-            add_action( 'wp_ajax_directorist_update_view_count', [ static::class, 'update_view_count' ] );
-            add_action( 'wp_ajax_nopriv_directorist_update_view_count', [ static::class, 'update_view_count' ] );
-
-            add_action( 'wp_ajax_atbdp_reject_listing', [ $this, 'reject_listing' ] );
+                if ( ! empty( $definition['public'] ) ) {
+                    add_action( 'wp_ajax_nopriv_' . $action, $callback, 10, $accepted_args );
+                }
+            }
         }
 
         public function directorist_taxonomy_pagination() {
