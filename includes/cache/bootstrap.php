@@ -1350,6 +1350,131 @@ namespace {
         }
     }
 
+    if ( ! function_exists( 'directorist_page_cache_cleanup_inactive_provider_dropin' ) ) {
+        /**
+         * Remove a recognized page-cache drop-in only after its provider is inactive.
+         *
+         * This repairs a late provider write that can race with plugin deactivation.
+         * Unknown files, symlinks, active providers, and selectable external providers
+         * remain fail-closed.
+         *
+         * @param array $runtime Testable filesystem and provider boundaries.
+         * @return array
+         */
+        function directorist_page_cache_cleanup_inactive_provider_dropin( array $runtime = [] ) {
+            $path = isset( $runtime['path'] ) ? (string) $runtime['path'] : WP_CONTENT_DIR . '/advanced-cache.php';
+
+            if ( ! is_file( $path ) ) {
+                return [ 'success' => true, 'code' => 'dropin_absent', 'provider' => '' ];
+            }
+
+            $external_probe = isset( $runtime['external_probe'] ) && is_callable( $runtime['external_probe'] )
+                ? $runtime['external_probe']
+                : 'directorist_page_cache_builtin_external_probe';
+
+            try {
+                $external = call_user_func( $external_probe );
+            } catch ( \Throwable $exception ) {
+                unset( $exception );
+                $external = [];
+            }
+
+            $external_code = is_array( $external ) && isset( $external['code'] )
+                ? sanitize_key( (string) $external['code'] )
+                : 'probe_failed';
+
+            if ( 'no_available_provider' !== $external_code ) {
+                return [ 'success' => true, 'code' => 'external_provider_available', 'provider' => '' ];
+            }
+
+            $owner_resolver = isset( $runtime['owner_resolver'] ) && is_callable( $runtime['owner_resolver'] )
+                ? $runtime['owner_resolver']
+                : static function () use ( $path ) {
+                    return ( new Dropin_Owner_Detector( $path, false ) )->detect();
+                };
+
+            try {
+                $owner = sanitize_key( (string) call_user_func( $owner_resolver ) );
+            } catch ( \Throwable $exception ) {
+                unset( $exception );
+                $owner = 'unknown';
+            }
+
+            $providers = [
+                'wp-super-cache' => 'wp-super-cache/wp-cache.php',
+                'cache-enabler'  => 'cache-enabler/cache-enabler.php',
+                'wp-rocket'      => 'wp-rocket/wp-rocket.php',
+            ];
+
+            if ( ! isset( $providers[ $owner ] ) ) {
+                return [ 'success' => true, 'code' => 'dropin_not_supported', 'provider' => $owner ];
+            }
+
+            if ( is_link( $path ) ) {
+                return [ 'success' => false, 'code' => 'dropin_path_unsafe', 'provider' => $owner ];
+            }
+
+            $provider_active = isset( $runtime['provider_active'] ) && is_callable( $runtime['provider_active'] )
+                ? $runtime['provider_active']
+                : static function ( $plugin ) {
+                    $active = get_option( 'active_plugins', [] );
+
+                    if ( is_array( $active ) && in_array( $plugin, $active, true ) ) {
+                        return true;
+                    }
+
+                    $network = is_multisite() ? get_site_option( 'active_sitewide_plugins', [] ) : [];
+
+                    return is_array( $network ) && isset( $network[ $plugin ] );
+                };
+
+            try {
+                $active = (bool) call_user_func( $provider_active, $providers[ $owner ], $owner );
+            } catch ( \Throwable $exception ) {
+                unset( $exception );
+                $active = true;
+            }
+
+            if ( $active ) {
+                return [ 'success' => true, 'code' => 'provider_still_active', 'provider' => $owner ];
+            }
+
+            $mutation_allowed = isset( $runtime['mutation_allowed'] ) && is_callable( $runtime['mutation_allowed'] )
+                ? $runtime['mutation_allowed']
+                : static function () use ( $owner ) {
+                    return apply_filters( 'directorist_page_cache_allow_runtime_mutation', true, $owner . '_inactive_dropin_cleanup' );
+                };
+
+            try {
+                $allowed = (bool) call_user_func( $mutation_allowed, $owner, $path );
+            } catch ( \Throwable $exception ) {
+                unset( $exception );
+                $allowed = false;
+            }
+
+            if ( ! $allowed ) {
+                return [ 'success' => false, 'code' => 'runtime_mutation_disabled', 'provider' => $owner ];
+            }
+
+            $remover = isset( $runtime['remover'] ) && is_callable( $runtime['remover'] ) ? $runtime['remover'] : 'unlink';
+
+            try {
+                $removed = (bool) call_user_func( $remover, $path );
+            } catch ( \Throwable $exception ) {
+                unset( $exception );
+                $removed = false;
+            }
+
+            if ( ! $removed ) {
+                return [ 'success' => false, 'code' => 'inactive_provider_dropin_remove_failed', 'provider' => $owner ];
+            }
+
+            Dropin_Owner_Detector::invalidate_persistent_cache();
+
+            return [ 'success' => true, 'code' => 'inactive_provider_dropin_removed', 'provider' => $owner ];
+        }
+    }
+
     if ( ! function_exists( 'directorist_page_cache_reconcile_lifecycle' ) ) {
         /**
          * Decide whether a stored lifecycle result still matches the active runtime.
@@ -1438,6 +1563,16 @@ namespace {
                 }
 
                 $reason = 'health';
+            }
+
+            $remnant = directorist_page_cache_cleanup_inactive_provider_dropin();
+
+            if ( 'inactive_provider_dropin_removed' === ( isset( $remnant['code'] ) ? $remnant['code'] : '' ) ) {
+                directorist_page_cache_record_performance_event(
+                    'success',
+                    'inactive-provider-dropin-removed',
+                    [ 'provider' => isset( $remnant['provider'] ) ? $remnant['provider'] : '' ]
+                );
             }
 
             delete_site_option( 'directorist_page_cache_lifecycle_pending' );
