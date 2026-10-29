@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name: Directorist - Business Directory Solution (Beta 1)
+ * Plugin Name: Directorist Core - Required for AI Integration (Beta 1)
  * Plugin URI: https://wpwax.com
  * Description: A comprehensive solution to create professional looking directory site of any kind. Like Yelp, Foursquare, etc.
  * Version: 8.9.4
