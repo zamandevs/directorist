@@ -289,6 +289,9 @@ if ( ! class_exists( 'ATBDP_Listing' ) ) :
             if ( ! isset( $post ) ) return;
 
             if ( is_singular( 'at_biz_dir' ) ) {
+                if ( ! \Directorist\Listing_Visibility::can_read_single( $post ) ) {
+                    return;
+                }
 
 
                 $title = get_the_title();

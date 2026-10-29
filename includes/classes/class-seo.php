@@ -995,6 +995,9 @@ if ( ! class_exists( 'ATBDP_SEO' ) ) :
 
         // get_single_listing_page_seo_meta
         public function get_single_listing_page_seo_meta( $default_seo_meta = [] ) {
+            if ( ! \Directorist\Listing_Visibility::can_read_single( get_the_ID() ) ) {
+                return array_merge( is_array( $default_seo_meta ) ? $default_seo_meta : [], [ 'description' => '', 'image' => '' ] );
+            }
             $seo_meta = [];
             $seo_meta['page'] = 'all_locations';
 

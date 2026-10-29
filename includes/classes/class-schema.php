@@ -188,7 +188,10 @@ class Schema {
             return;
         }
 
-        $post_id      = get_the_ID();
+        $post_id = get_the_ID();
+        if ( ! Listing_Visibility::can_read_single( $post_id ) ) {
+            return [];
+        }
         $directory_id = static::get_listing_directory_id();
 
         if ( ! directorist_is_directory( $directory_id ) ) {

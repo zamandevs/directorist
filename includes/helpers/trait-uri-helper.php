@@ -36,6 +36,16 @@ trait URI_Helper {
     }
 
     public static function get_template( $template, $args = [], $shortcode_key = '' ) {
+        if ( 'single-contents' === $template || 'single-sidebar' === $template || 0 === strpos( $template, 'single/' ) ) {
+            $listing_id   = isset( $args['listing']->id ) ? (int) $args['listing']->id : (int) get_queried_object_id();
+            $listing_post = $listing_id ? get_post( $listing_id ) : null;
+            if ( $listing_post && ATBDP_POST_TYPE === $listing_post->post_type && ! Listing_Visibility::can_read_single( $listing_post ) ) {
+                if ( in_array( $template, [ 'single-contents', 'single/single-listing' ], true ) ) {
+                    echo Listing_Visibility::denied_single_content( $listing_post ); // phpcs:ignore WordPress.Security.EscapeOutput -- Native WordPress password form.
+                }
+                return;
+            }
+        }
         if ( is_array( $args ) ) {
             extract( $args );
         }

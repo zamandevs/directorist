@@ -408,7 +408,7 @@ class ATBDP_Metabox {
             ?>
         </select>
         <?php } else {?>
-            <input type="hidden" name="directory_type" value="<?php echo esc_attr( $default ); ?>">
+            <input type="hidden" name="directory_type" value="<?php echo esc_attr( $value ); ?>">
         <?php } ?>
 
         <div id="directiost-listing-fields_wrapper" data-id="<?php echo esc_attr( $post->ID )?>">

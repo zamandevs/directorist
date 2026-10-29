@@ -50,6 +50,7 @@ class Directorist_Template_Hooks {
         // Single Listing
         // Set high priority to override page builders.
         add_filter( 'template_include', [ $this, 'single_template_path' ], 999 );
+        add_filter( 'template_include', [ $this, 'locked_single_template' ], PHP_INT_MAX );
         add_filter( 'the_content',      [ $this, 'single_content' ], 20 );
     }
 
@@ -98,6 +99,21 @@ class Directorist_Template_Hooks {
         }
 
         return $content;
+    }
+
+    /**
+     * Keep a locked listing behind WordPress's form even with a builder body.
+     *
+     * Unlocked and authorized native editor requests retain their chosen layout.
+     *
+     * @param string $template Selected native or theme template.
+     * @return string
+     */
+    public function locked_single_template( $template ) {
+        if ( is_singular( ATBDP_POST_TYPE ) && ! Listing_Visibility::can_read_single( get_queried_object_id() ) ) {
+            return ATBDP_DIR . 'templates/single.php';
+        }
+        return $template;
     }
 
     /**
